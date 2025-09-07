@@ -1,8 +1,8 @@
-// app.js — client-side mNAV with 30-day window, cleaner titles (v=ui-1)
+// app.js — client-side mNAV with 30-day window + hover tooltips (v=ui-3)
 // mNAV = (Price × Shares Outstanding) ÷ NAV
-// Shares forward-filled; Price & NAV NOT forward-filled.
+// Shares are forward-filled; Price & NAV are NOT forward-filled.
 
-console.log("mNAV Pages app loaded: v=ui-1");
+console.log("mNAV Pages app loaded: v=ui-3");
 
 (async function () {
   const container = document.getElementById("charts");
@@ -21,21 +21,23 @@ console.log("mNAV Pages app loaded: v=ui-1");
   const normMetric = (s) => lc(s).replace(/[^a-z0-9]+/g, "_");
   const parseNum = (v) => {
     if (v === null || v === undefined || v === "") return NaN;
-    const t = String(v).replace(/[^0-9eE.\-+]/g, "");
+    const t = String(v).replace(/[^0-9eE.\-+]/g, ""); // strip $, commas, spaces
     if (!t || t === "." || t === "-" || t === "+") return NaN;
     const n = Number(t);
     return Number.isFinite(n) ? n : NaN;
   };
+  // Return UNIX milliseconds (for Chart.js time scale)
   const toDayTS = (s) => {
     const raw = trim(s);
     if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-      const ms = Date.parse(raw + "T00:00:00Z");
+      const ms = Date.parse(raw + "T00:00:00Z"); // avoid TZ drift
       return Number.isFinite(ms) ? ms : NaN;
     }
     const ms = Date.parse(raw);
     return Number.isFinite(ms) ? ms : NaN;
   };
   const tickerLabel = (sym) => sym.toUpperCase().replace(/^EQ-/, "");
+  const isIn = (val, arr) => arr.includes(val);
 
   // ----- 1) fetch CSV -----
   let text;
@@ -60,11 +62,8 @@ console.log("mNAV Pages app loaded: v=ui-1");
   });
 
   // ----- 3) base metrics -----
-  const isIn = (val, arr) => arr.includes(val);
   const priceRows = rows.filter((r) => isIn(r._m, ["price"]));
   const navRows   = rows.filter((r) => isIn(r._m, ["nav", "net_asset_value"]));
-
-  // Shares (exclude fully diluted)
   const sharesRows = rows.filter((r) => {
     const m = r._m;
     if (m.includes("fully") && m.includes("diluted")) return false;
@@ -129,7 +128,7 @@ console.log("mNAV Pages app loaded: v=ui-1");
       }
     }
 
-    // dedupe by day (keep last point for each date)
+    // Deduplicate by day (keep last point), then keep only last 30 days
     raw.sort((a, b) => a.x - b.x);
     const series = [];
     let lastKey = "";
@@ -141,8 +140,6 @@ console.log("mNAV Pages app loaded: v=ui-1");
         series.push(pt);
       }
     }
-
-    // --- keep only last 30 days ---
     if (series.length) {
       const maxX = series[series.length - 1].x;
       const cutoff = maxX - 30 * DAY_MS;
@@ -152,7 +149,7 @@ console.log("mNAV Pages app loaded: v=ui-1");
     }
   }
 
-  // ----- 6) render charts -----
+  // ----- 6) render charts (with hover tooltips) -----
   container.innerHTML = "";
   const palette = ["#79c0ff","#ff7b72","#a5d6ff","#d2a8ff","#ffa657","#56d364","#1f6feb","#e3b341","#ffa198","#7ee787"];
   let i = 0; const nextColor = () => palette[(i++) % palette.length];
@@ -163,24 +160,17 @@ console.log("mNAV Pages app loaded: v=ui-1");
     if (!series || series.length < 2) continue;
 
     const card = document.createElement("div"); card.className = "card";
-
-    const h2 = document.createElement("h2");
-    h2.textContent = tickerLabel(sym);
-    card.appendChild(h2);
-
-    const wrap = document.createElement("div");
-    wrap.className = "canvas-wrap";
-    const canvas = document.createElement("canvas");
-    wrap.appendChild(canvas);
-    card.appendChild(wrap);
-    container.appendChild(card);
+    const h2 = document.createElement("h2"); h2.textContent = tickerLabel(sym); card.appendChild(h2);
+    const wrap = document.createElement("div"); wrap.className = "canvas-wrap";
+    const canvas = document.createElement("canvas"); wrap.appendChild(canvas);
+    card.appendChild(wrap); container.appendChild(card);
 
     new Chart(canvas.getContext("2d"), {
       type: "line",
       data: {
         datasets: [{
           label: "mNAV",
-          data: series,       // [{x: ms, y: number}]
+          data: series,         // [{x: ms, y: number}]
           parsing: false,
           pointRadius: 0,
           borderWidth: 1.5,
@@ -195,12 +185,27 @@ console.log("mNAV Pages app loaded: v=ui-1");
         maintainAspectRatio: false,
         scales: {
           x: { type: "time", time: { unit: "day" }, grid: { color: "#22252a" } },
-          y: {
-            grid: { color: "#22252a" },
-            ticks: { callback: (v) => Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(v) }
-          }
+          y: { grid: { color: "#22252a" },
+               ticks: { callback: (v) => Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(v) } }
         },
-        plugins: { legend: { display: false } }
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            mode: "index",
+            intersect: false,
+            callbacks: {
+              title: (items) => {
+                const ts = items?.[0]?.raw?.x ?? items?.[0]?.parsed?.x;
+                if (!Number.isFinite(ts)) return "";
+                return new Date(ts).toISOString().slice(0, 10);
+              },
+              label: (ctx) => {
+                const val = ctx.raw?.y ?? ctx.parsed?.y;
+                return `mNAV: ${Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(val)}`;
+              }
+            }
+          }
+        }
       }
     });
 
