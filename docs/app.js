@@ -1,26 +1,25 @@
-// app.js — client-side mNAV with 1M/3M toggle and fixed order (v=ui-4)
+// app.js — client-side mNAV with per-chart 1M/3M toggles, fixed 2×n layout (v=ui-5)
 // mNAV = (Price × Shares Outstanding) ÷ NAV
 // Shares forward-filled; Price & NAV NOT forward-filled.
-// Layout: 2 charts per row on large screens.
 // Order: MSTR + MTPLF (top), SBET + BMNR (middle), DFDV + UPXI (bottom).
 
-console.log("mNAV Pages app loaded: v=ui-4");
+console.log("mNAV Pages app loaded: v=ui-5");
 
 (async function () {
   const container = document.getElementById("charts");
   const show = (msg) => (container.innerHTML = `<div class="loading">${msg}</div>`);
 
-  // Dark theme
+  // Dark theme defaults
   Chart.defaults.color = "#e6e6e6";
   Chart.defaults.borderColor = "#2a2d31";
 
   const url = "./data/dat_data.csv?ts=" + Date.now();
   const DAY_MS = 24 * 60 * 60 * 1000;
 
-  // Target order (labels without EQ-)
+  // Desired order (labels without EQ-)
   const DESIRED_ORDER = ["MSTR", "MTPLF", "SBET", "BMNR", "DFDV", "UPXI"];
 
-  // ----- helpers -----
+  // ---------- helpers ----------
   const trim = (s) => String(s ?? "").trim();
   const lc = (s) => trim(s).toLowerCase();
   const normMetric = (s) => lc(s).replace(/[^a-z0-9]+/g, "_");
@@ -31,7 +30,7 @@ console.log("mNAV Pages app loaded: v=ui-4");
     const n = Number(t);
     return Number.isFinite(n) ? n : NaN;
   };
-  // Return UNIX ms (for Chart.js time scale)
+  // UNIX ms (UTC midnight if YYYY-MM-DD)
   const toDayTS = (s) => {
     const raw = trim(s);
     if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
@@ -44,7 +43,7 @@ console.log("mNAV Pages app loaded: v=ui-4");
   const tickerLabel = (sym) => sym.toUpperCase().replace(/^EQ-/, "");
   const isIn = (val, arr) => arr.includes(val);
 
-  // ----- 1) fetch CSV -----
+  // ---------- 1) fetch CSV ----------
   let text;
   try {
     const res = await fetch(url, { cache: "no-store" });
@@ -52,7 +51,7 @@ console.log("mNAV Pages app loaded: v=ui-4");
     text = await res.text();
   } catch (e) { return show(`Failed to fetch ${url}: ${e}`); }
 
-  // ----- 2) parse & normalize headers (lowercase) -----
+  // ---------- 2) parse & normalize headers (lowercase) ----------
   let rows = d3.csvParse(text);
   if (!rows.length) return show("CSV is empty.");
 
@@ -66,7 +65,7 @@ console.log("mNAV Pages app loaded: v=ui-4");
     return o;
   });
 
-  // ----- 3) base metrics -----
+  // ---------- 3) base metrics ----------
   const priceRows = rows.filter((r) => isIn(r._m, ["price"]));
   const navRows   = rows.filter((r) => isIn(r._m, ["nav", "net_asset_value"]));
   const sharesRows = rows.filter((r) => {
@@ -87,7 +86,7 @@ console.log("mNAV Pages app loaded: v=ui-4");
     return show("Missing required inputs: Price, NAV, or Shares.");
   }
 
-  // ----- 4) EQ- ticker columns -----
+  // ---------- 4) EQ- ticker columns ----------
   const allCols = new Set();
   rows.forEach((r) => Object.keys(r).forEach((k) => allCols.add(k)));
   const allSymbols = [...allCols].filter(
@@ -100,7 +99,7 @@ console.log("mNAV Pages app loaded: v=ui-4");
   const symbols = DESIRED_ORDER.map(lbl => presentLabels.get(lbl)).filter(Boolean);
   if (!symbols.length) return show("Desired tickers not found in CSV.");
 
-  // ----- 5) compute full mNAV series per symbol -----
+  // ---------- 5) compute FULL mNAV series per symbol ----------
   function buildMap(blockRows, sym) {
     const m = new Map(); // "YYYY-MM-DD" -> number
     for (const r of blockRows) {
@@ -153,9 +152,10 @@ console.log("mNAV Pages app loaded: v=ui-4");
     fullBySymbol[sym] = series;
   }
 
-  // ----- 6) render with window (1M default, 3M optional) -----
+  // ---------- 6) render cards (each with its own 1M/3M toggle) ----------
+  container.innerHTML = "";
   const palette = ["#79c0ff","#ff7b72","#a5d6ff","#d2a8ff","#ffa657","#56d364","#1f6feb","#e3b341","#ffa198","#7ee787"];
-  let colorIndex;
+  let colorIndex = 0;
 
   function filterWindow(series, days) {
     if (!series || !series.length) return [];
@@ -164,81 +164,97 @@ console.log("mNAV Pages app loaded: v=ui-4");
     return series.filter((pt) => pt.x >= cutoff);
   }
 
-  function render(windowDays = 30) {
-    container.innerHTML = "";
-    colorIndex = 0;
+  for (const sym of symbols) {
+    const fullSeries = fullBySymbol[sym];
+    if (!fullSeries || fullSeries.length < 2) continue;
 
-    for (const sym of symbols) {
-      const series = filterWindow(fullBySymbol[sym], windowDays);
-      if (!series || series.length < 2) continue;
+    const card = document.createElement("div"); card.className = "card";
+    const header = document.createElement("div"); header.className = "card-header";
 
-      const card = document.createElement("div"); card.className = "card";
-      const h2 = document.createElement("h2"); h2.textContent = tickerLabel(sym); card.appendChild(h2);
-      const wrap = document.createElement("div"); wrap.className = "canvas-wrap";
-      const canvas = document.createElement("canvas"); wrap.appendChild(canvas);
-      card.appendChild(wrap); container.appendChild(card);
+    const h2 = document.createElement("h2"); h2.textContent = tickerLabel(sym);
+    header.appendChild(h2);
 
-      new Chart(canvas.getContext("2d"), {
-        type: "line",
-        data: {
-          datasets: [{
-            label: "mNAV",
-            data: series,            // [{x: ms, y: number}]
-            parsing: false,
-            pointRadius: 0,
-            borderWidth: 1.5,
-            tension: 0.2,
-            borderColor: palette[(colorIndex++) % palette.length],
-            spanGaps: true
-          }]
+    const toggles = document.createElement("div"); toggles.className = "toggle-group";
+    const btn1m = document.createElement("button"); btn1m.className = "toggle active"; btn1m.textContent = "1M"; btn1m.dataset.days = "30";
+    const btn3m = document.createElement("button"); btn3m.className = "toggle";          btn3m.textContent = "3M"; btn3m.dataset.days = "90";
+    toggles.appendChild(btn1m); toggles.appendChild(btn3m);
+    header.appendChild(toggles);
+
+    card.appendChild(header);
+
+    const wrap = document.createElement("div"); wrap.className = "canvas-wrap";
+    const canvas = document.createElement("canvas"); wrap.appendChild(canvas);
+    card.appendChild(wrap);
+    container.appendChild(card);
+
+    const color = palette[(colorIndex++) % palette.length];
+
+    // Initial dataset = 1M
+    let windowDays = 30;
+    const initial = filterWindow(fullSeries, windowDays);
+
+    const chart = new Chart(canvas.getContext("2d"), {
+      type: "line",
+      data: {
+        datasets: [{
+          label: "mNAV",
+          data: initial,        // [{x: ms, y: number}]
+          parsing: false,
+          pointRadius: 0,
+          borderWidth: 1.5,
+          tension: 0.2,
+          borderColor: color,
+          spanGaps: true
+        }]
+      },
+      options: {
+        animation: false,
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { type: "time", time: { unit: "day" }, grid: { color: "#22252a" } },
+          y: { grid: { color: "#22252a" },
+               ticks: { callback: (v) => Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(v) } }
         },
-        options: {
-          animation: false,
-          responsive: true,
-          maintainAspectRatio: false,
-          scales: {
-            x: { type: "time", time: { unit: "day" }, grid: { color: "#22252a" } },
-            y: { grid: { color: "#22252a" },
-                 ticks: { callback: (v) => Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(v) } }
-          },
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              mode: "index",
-              intersect: false,
-              callbacks: {
-                title: (items) => {
-                  const ts = items?.[0]?.raw?.x ?? items?.[0]?.parsed?.x;
-                  return Number.isFinite(ts) ? new Date(ts).toISOString().slice(0,10) : "";
-                },
-                label: (ctx) => {
-                  const val = ctx.raw?.y ?? ctx.parsed?.y;
-                  return `mNAV: ${Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(val)}`;
-                }
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            mode: "index",
+            intersect: false,
+            callbacks: {
+              title: (items) => {
+                const ts = items?.[0]?.raw?.x ?? items?.[0]?.parsed?.x;
+                return Number.isFinite(ts) ? new Date(ts).toISOString().slice(0,10) : "";
+              },
+              label: (ctx) => {
+                const val = ctx.raw?.y ?? ctx.parsed?.y;
+                return `mNAV: ${Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(val)}`;
               }
             }
           }
         }
-      });
+      }
+    });
+
+    // Per-card toggle logic
+    function setActive(btn) {
+      btn1m.classList.remove("active");
+      btn3m.classList.remove("active");
+      btn.classList.add("active");
+    }
+    function updateWindow(days) {
+      windowDays = days;
+      const data = filterWindow(fullSeries, windowDays);
+      chart.data.datasets[0].data = data;
+      chart.update("none");
     }
 
-    if (!container.children.length) {
-      show(`No plottable mNAV series in the last ${windowDays} days for the selected tickers.`);
-    }
+    btn1m.addEventListener("click", (e) => { e.preventDefault(); setActive(btn1m); updateWindow(30); });
+    btn3m.addEventListener("click", (e) => { e.preventDefault(); setActive(btn3m); updateWindow(90); });
   }
 
-  // Initial render (1M)
-  render(30);
-
-  // ----- 7) toggles (1M / 3M) -----
-  function setActive(btn) {
-    document.querySelectorAll(".toggle").forEach(b => b.classList.remove("active"));
-    btn.classList.add("active");
+  // If nothing rendered (e.g., no valid series)
+  if (!container.querySelector(".card")) {
+    show("No plottable mNAV series for the selected tickers.");
   }
-  document.getElementById("btn-1m")?.addEventListener("click", (e) => {
-    setActive(e.currentTarget); render(30);
-  });
-  document.getElementById("btn-3m")?.addEventListener("click", (e) => {
-    setActive(e.currentTarget); render(90);
-  });
 })();
