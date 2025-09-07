@@ -1,8 +1,10 @@
-// app.js — client-side mNAV with 30-day window + hover tooltips (v=ui-3)
+// app.js — client-side mNAV with 1M/3M toggle and fixed order (v=ui-4)
 // mNAV = (Price × Shares Outstanding) ÷ NAV
-// Shares are forward-filled; Price & NAV are NOT forward-filled.
+// Shares forward-filled; Price & NAV NOT forward-filled.
+// Layout: 2 charts per row on large screens.
+// Order: MSTR + MTPLF (top), SBET + BMNR (middle), DFDV + UPXI (bottom).
 
-console.log("mNAV Pages app loaded: v=ui-3");
+console.log("mNAV Pages app loaded: v=ui-4");
 
 (async function () {
   const container = document.getElementById("charts");
@@ -15,6 +17,9 @@ console.log("mNAV Pages app loaded: v=ui-3");
   const url = "./data/dat_data.csv?ts=" + Date.now();
   const DAY_MS = 24 * 60 * 60 * 1000;
 
+  // Target order (labels without EQ-)
+  const DESIRED_ORDER = ["MSTR", "MTPLF", "SBET", "BMNR", "DFDV", "UPXI"];
+
   // ----- helpers -----
   const trim = (s) => String(s ?? "").trim();
   const lc = (s) => trim(s).toLowerCase();
@@ -26,7 +31,7 @@ console.log("mNAV Pages app loaded: v=ui-3");
     const n = Number(t);
     return Number.isFinite(n) ? n : NaN;
   };
-  // Return UNIX milliseconds (for Chart.js time scale)
+  // Return UNIX ms (for Chart.js time scale)
   const toDayTS = (s) => {
     const raw = trim(s);
     if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
@@ -85,12 +90,17 @@ console.log("mNAV Pages app loaded: v=ui-3");
   // ----- 4) EQ- ticker columns -----
   const allCols = new Set();
   rows.forEach((r) => Object.keys(r).forEach((k) => allCols.add(k)));
-  const symbols = [...allCols].filter(
+  const allSymbols = [...allCols].filter(
     (k) => k !== "date" && k !== "metric" && k !== "_m" && /^eq-/.test(k)
   );
-  if (!symbols.length) return show("No EQ- ticker columns found.");
+  if (!allSymbols.length) return show("No EQ- ticker columns found.");
 
-  // ----- 5) compute mNAV per symbol -----
+  // Filter & order symbols to match DESIRED_ORDER (skip missing)
+  const presentLabels = new Map(allSymbols.map(sym => [tickerLabel(sym), sym])); // label -> symbol
+  const symbols = DESIRED_ORDER.map(lbl => presentLabels.get(lbl)).filter(Boolean);
+  if (!symbols.length) return show("Desired tickers not found in CSV.");
+
+  // ----- 5) compute full mNAV series per symbol -----
   function buildMap(blockRows, sym) {
     const m = new Map(); // "YYYY-MM-DD" -> number
     for (const r of blockRows) {
@@ -102,7 +112,7 @@ console.log("mNAV Pages app loaded: v=ui-3");
     return m;
   }
 
-  const bySymbol = {};
+  const fullBySymbol = {};
   for (const sym of symbols) {
     const pMap = buildMap(priceRows,  sym);
     const nMap = buildMap(navRows,    sym);
@@ -128,7 +138,7 @@ console.log("mNAV Pages app loaded: v=ui-3");
       }
     }
 
-    // Deduplicate by day (keep last point), then keep only last 30 days
+    // dedupe by day (keep last point)
     raw.sort((a, b) => a.x - b.x);
     const series = [];
     let lastKey = "";
@@ -140,77 +150,95 @@ console.log("mNAV Pages app loaded: v=ui-3");
         series.push(pt);
       }
     }
-    if (series.length) {
-      const maxX = series[series.length - 1].x;
-      const cutoff = maxX - 30 * DAY_MS;
-      bySymbol[sym] = series.filter((pt) => pt.x >= cutoff);
-    } else {
-      bySymbol[sym] = series;
-    }
+    fullBySymbol[sym] = series;
   }
 
-  // ----- 6) render charts (with hover tooltips) -----
-  container.innerHTML = "";
+  // ----- 6) render with window (1M default, 3M optional) -----
   const palette = ["#79c0ff","#ff7b72","#a5d6ff","#d2a8ff","#ffa657","#56d364","#1f6feb","#e3b341","#ffa198","#7ee787"];
-  let i = 0; const nextColor = () => palette[(i++) % palette.length];
+  let colorIndex;
 
-  let plotted = 0;
-  for (const sym of symbols) {
-    const series = bySymbol[sym];
-    if (!series || series.length < 2) continue;
+  function filterWindow(series, days) {
+    if (!series || !series.length) return [];
+    const maxX = series[series.length - 1].x;
+    const cutoff = maxX - days * DAY_MS;
+    return series.filter((pt) => pt.x >= cutoff);
+  }
 
-    const card = document.createElement("div"); card.className = "card";
-    const h2 = document.createElement("h2"); h2.textContent = tickerLabel(sym); card.appendChild(h2);
-    const wrap = document.createElement("div"); wrap.className = "canvas-wrap";
-    const canvas = document.createElement("canvas"); wrap.appendChild(canvas);
-    card.appendChild(wrap); container.appendChild(card);
+  function render(windowDays = 30) {
+    container.innerHTML = "";
+    colorIndex = 0;
 
-    new Chart(canvas.getContext("2d"), {
-      type: "line",
-      data: {
-        datasets: [{
-          label: "mNAV",
-          data: series,         // [{x: ms, y: number}]
-          parsing: false,
-          pointRadius: 0,
-          borderWidth: 1.5,
-          tension: 0.2,
-          borderColor: nextColor(),
-          spanGaps: true
-        }]
-      },
-      options: {
-        animation: false,
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          x: { type: "time", time: { unit: "day" }, grid: { color: "#22252a" } },
-          y: { grid: { color: "#22252a" },
-               ticks: { callback: (v) => Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(v) } }
+    for (const sym of symbols) {
+      const series = filterWindow(fullBySymbol[sym], windowDays);
+      if (!series || series.length < 2) continue;
+
+      const card = document.createElement("div"); card.className = "card";
+      const h2 = document.createElement("h2"); h2.textContent = tickerLabel(sym); card.appendChild(h2);
+      const wrap = document.createElement("div"); wrap.className = "canvas-wrap";
+      const canvas = document.createElement("canvas"); wrap.appendChild(canvas);
+      card.appendChild(wrap); container.appendChild(card);
+
+      new Chart(canvas.getContext("2d"), {
+        type: "line",
+        data: {
+          datasets: [{
+            label: "mNAV",
+            data: series,            // [{x: ms, y: number}]
+            parsing: false,
+            pointRadius: 0,
+            borderWidth: 1.5,
+            tension: 0.2,
+            borderColor: palette[(colorIndex++) % palette.length],
+            spanGaps: true
+          }]
         },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            mode: "index",
-            intersect: false,
-            callbacks: {
-              title: (items) => {
-                const ts = items?.[0]?.raw?.x ?? items?.[0]?.parsed?.x;
-                if (!Number.isFinite(ts)) return "";
-                return new Date(ts).toISOString().slice(0, 10);
-              },
-              label: (ctx) => {
-                const val = ctx.raw?.y ?? ctx.parsed?.y;
-                return `mNAV: ${Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(val)}`;
+        options: {
+          animation: false,
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: { type: "time", time: { unit: "day" }, grid: { color: "#22252a" } },
+            y: { grid: { color: "#22252a" },
+                 ticks: { callback: (v) => Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(v) } }
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              mode: "index",
+              intersect: false,
+              callbacks: {
+                title: (items) => {
+                  const ts = items?.[0]?.raw?.x ?? items?.[0]?.parsed?.x;
+                  return Number.isFinite(ts) ? new Date(ts).toISOString().slice(0,10) : "";
+                },
+                label: (ctx) => {
+                  const val = ctx.raw?.y ?? ctx.parsed?.y;
+                  return `mNAV: ${Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(val)}`;
+                }
               }
             }
           }
         }
-      }
-    });
+      });
+    }
 
-    plotted++;
+    if (!container.children.length) {
+      show(`No plottable mNAV series in the last ${windowDays} days for the selected tickers.`);
+    }
   }
 
-  if (!plotted) show("No plottable mNAV series in the last 30 days.");
+  // Initial render (1M)
+  render(30);
+
+  // ----- 7) toggles (1M / 3M) -----
+  function setActive(btn) {
+    document.querySelectorAll(".toggle").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+  }
+  document.getElementById("btn-1m")?.addEventListener("click", (e) => {
+    setActive(e.currentTarget); render(30);
+  });
+  document.getElementById("btn-3m")?.addEventListener("click", (e) => {
+    setActive(e.currentTarget); render(90);
+  });
 })();

@@ -1,67 +1,84 @@
+/* Minimal dark UI, 2-up grid on large screens */
 :root {
-  --bg: #0b0b0c;
-  --panel: #121214;
-  --ink: #e6e6e6;
-  --muted: #a8a8a8;
-  --grid: #22252a;
+  --bg: #0d1117;
+  --panel: #161b22;
+  --border: #2a2d31;
+  --text: #e6e6e6;
+  --muted: #9aa3af;
+  --accent: #79c0ff;
 }
 
 * { box-sizing: border-box; }
-html, body { height: 100%; }
-body {
+
+html, body {
   margin: 0;
+  padding: 0;
   background: var(--bg);
-  color: var(--ink);
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
 }
 
-header {
-  max-width: 1100px;
-  margin: 24px auto 8px;
+.site-header, .site-footer {
+  max-width: 1200px;
+  margin: 24px auto 12px auto;
   padding: 0 16px;
 }
-header h1 { margin: 0 0 6px; font-weight: 600; letter-spacing: 0.2px; }
-header p { margin: 0; color: var(--muted); font-size: 14px; }
 
-#charts {
-  max-width: 1100px;
-  margin: 12px auto 32px;
+.site-header h1 { margin: 0 0 6px 0; font-size: 22px; }
+.site-header p { margin: 0 0 10px 0; color: var(--muted); }
+
+.controls {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 0 0;
+}
+.toggle {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.toggle.active {
+  outline: 2px solid var(--accent);
+  border-color: var(--accent);
+}
+
+.charts-grid {
+  max-width: 1200px;
+  margin: 10px auto 28px auto;
   padding: 0 16px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 16px;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+@media (min-width: 1024px) {
+  .charts-grid {
+    grid-template-columns: 1fr 1fr; /* exactly 2 per row on large screens */
+  }
 }
 
 .card {
   background: var(--panel);
-  border: 1px solid var(--grid);
+  border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 12px 12px 8px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.25);
+  padding: 12px;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.1) inset;
 }
-
 .card h2 {
-  margin: 0 0 8px;
-  font-size: 14px;
-  color: var(--muted);
-  font-weight: 500;
-  letter-spacing: 0.2px;
+  margin: 0 0 8px 0;
+  font-size: 16px;
+  letter-spacing: 0.3px;
 }
 
 .canvas-wrap {
+  position: relative;
   width: 100%;
-  height: 230px;
+  height: 300px; /* chart height */
 }
 
 .loading {
   color: var(--muted);
-  padding: 16px;
-}
-
-footer {
-  max-width: 1100px;
-  margin: 0 auto 28px;
-  padding: 0 16px;
-  color: var(--muted);
-  font-size: 12px;
+  padding: 20px;
 }

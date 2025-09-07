@@ -11,19 +11,23 @@
   <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
 </head>
 <body>
-  <header>
+  <header class="site-header">
     <h1>mNAV Dashboard</h1>
     <p>mNAV = (Price × Number of Shares Outstanding) ÷ NAV</p>
+    <div class="controls">
+      <button id="btn-1m" class="toggle active" data-days="30">1M</button>
+      <button id="btn-3m" class="toggle" data-days="90">3M</button>
+    </div>
   </header>
 
-  <main id="charts">
+  <main id="charts" class="charts-grid">
     <div class="loading">Loading mNAV charts…</div>
   </main>
 
-  <footer>
+  <footer class="site-footer">
     <span>Source: <code>docs/data/dat_data.csv</code></span>
   </footer>
 
-  <script src="app.js?v=ui-3"></script>
+  <script src="app.js?v=ui-4"></script>
 </body>
 </html>
