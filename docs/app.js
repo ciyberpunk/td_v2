@@ -1,8 +1,7 @@
-// app.js — production mNAV dashboard
+// app.js — production mNAV dashboard (v=prod-3)
 // mNAV = (Price × Number of Shares Outstanding) ÷ NAV
-// - Shares forward-filled (event-driven)
-// - Price & NAV NOT forward-filled
-// - One daily time-series per EQ- ticker
+// - Shares forward-filled (event-driven). Price & NAV are NOT forward-filled.
+// - One daily time-series per EQ- ticker.
 
 console.log("mNAV Pages app loaded: v=prod-3", new Date().toISOString());
 
@@ -10,7 +9,7 @@ console.log("mNAV Pages app loaded: v=prod-3", new Date().toISOString());
   const container = document.getElementById("charts");
   const show = (msg) => { container.innerHTML = `<div class="loading">${msg}</div>`; };
 
-  // Dark theme defaults
+  // Dark theme
   Chart.defaults.color = "#e6e6e6";
   Chart.defaults.borderColor = "#2a2d31";
 
@@ -21,21 +20,21 @@ console.log("mNAV Pages app loaded: v=prod-3", new Date().toISOString());
   const cleanHeader = (s) => String(s || "").trim();
   const parseNum = (v) => {
     if (v === null || v === undefined || v === "") return NaN;
-    const t = String(v).replace(/,/g, "").trim();  // strip thousands separators
+    const t = String(v).replace(/,/g, "").trim();
     const n = Number(t);
     return Number.isFinite(n) ? n : NaN;
   };
   const parseDate = (s) => {
     const raw = String(s || "").trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) { // avoid TZ shifts
-      const d = new Date(raw + "T00:00:00Z");
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      const d = new Date(raw + "T00:00:00Z"); // avoid TZ shifts
       return isNaN(d) ? null : d;
     }
     const d = new Date(raw);
     return isNaN(d) ? null : d;
   };
 
-  // 1) fetch CSV
+  // fetch CSV
   let text;
   try {
     const res = await fetch(url, { cache: "no-store" });
@@ -43,7 +42,7 @@ console.log("mNAV Pages app loaded: v=prod-3", new Date().toISOString());
     text = await res.text();
   } catch (e) { return show(`Failed to fetch ${url}: ${e}`); }
 
-  // 2) parse & normalize headers
+  // parse + normalize headers
   let rows;
   try { rows = d3.csvParse(text); }
   catch (e) { return show(`CSV parse error for ${url}: ${e}`); }
@@ -58,7 +57,7 @@ console.log("mNAV Pages app loaded: v=prod-3", new Date().toISOString());
     return o;
   });
 
-  // 3) keep only the base metrics to reduce work
+  // base metric blocks
   const priceRows  = rows.filter((r) => lc(r.metric) === "price");
   const navRows    = rows.filter((r) => ["net asset value","nav"].includes(lc(r.metric)));
   const sharesRows = rows.filter((r) => lc(r.metric).includes("number of shares"));
@@ -71,7 +70,7 @@ console.log("mNAV Pages app loaded: v=prod-3", new Date().toISOString());
     return show("Missing required inputs: " + missing.join(", "));
   }
 
-  // 4) EQ- ticker columns
+  // EQ- columns
   const allCols = new Set(); rows.forEach(r => Object.keys(r).forEach(k => allCols.add(k)));
   const symbols = [...allCols].filter(k => k !== "date" && k !== "metric" && /^eq-/i.test(k));
   if (!symbols.length) return show("No EQ- ticker columns found in dat_data.csv");
@@ -87,7 +86,7 @@ console.log("mNAV Pages app loaded: v=prod-3", new Date().toISOString());
     return m;
   }
 
-  // 5) compute mNAV per symbol (daily)
+  // compute mNAV per symbol (daily)
   const bySymbol = {};
   for (const sym of symbols) {
     const pMap = buildMap(priceRows, sym);
@@ -104,10 +103,9 @@ console.log("mNAV Pages app loaded: v=prod-3", new Date().toISOString());
       const d = parseDate(dStr);
       if (!d) continue;
 
-      // forward-fill shares
       if (sMap.has(dStr)) {
         const v = sMap.get(dStr);
-        if (Number.isFinite(v)) lastShares = v;
+        if (Number.isFinite(v)) lastShares = v; // forward-fill shares
       }
       const price = pMap.get(dStr);
       const nav   = nMap.get(dStr);
@@ -117,7 +115,7 @@ console.log("mNAV Pages app loaded: v=prod-3", new Date().toISOString());
       }
     }
 
-    // de-dupe by day (keep last point per date)
+    // de-dupe per day (keep last)
     const dedup = [];
     let lastKey = "";
     for (const pt of series) {
@@ -129,12 +127,11 @@ console.log("mNAV Pages app loaded: v=prod-3", new Date().toISOString());
     bySymbol[sym] = dedup;
   }
 
-  // 6) draw charts
+  // draw charts
   container.innerHTML = "";
 
   const palette = ["#79c0ff","#ff7b72","#a5d6ff","#d2a8ff","#ffa657","#56d364","#1f6feb","#e3b341","#ffa198","#7ee787"];
-  let colorIdx = 0;
-  const nextColor = () => palette[(colorIdx++) % palette.length];
+  let colorIdx = 0; const nextColor = () => palette[(colorIdx++) % palette.length];
 
   let plotted = 0;
   for (const sym of symbols) {
@@ -157,40 +154,21 @@ console.log("mNAV Pages app loaded: v=prod-3", new Date().toISOString());
 
     new Chart(canvas.getContext("2d"), {
       type: "line",
-      data: {
-        datasets: [{
-          label: "mNAV",
-          data: series,
-          borderWidth: 1.5,
-          pointRadius: 0,
-          tension: 0.2,
-          borderColor: nextColor()
-        }]
-      },
+      data: { datasets: [{ label: "mNAV", data: series, borderWidth: 1.5, pointRadius: 0, tension: 0.2, borderColor: nextColor() }] },
       options: {
-        animation: false,
-        responsive: true,
-        maintainAspectRatio: false,
-        parsing: false,
+        animation: false, responsive: true, maintainAspectRatio: false, parsing: false,
         scales: {
           x: { type: "time", time: { unit: "day" }, grid: { color: "#22252a" } },
-          y: {
-            grid: { color: "#22252a" },
-            ticks: {
-              callback: (val) =>
-                Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 2 }).format(val)
-            }
-          }
+          y: { grid: { color: "#22252a" },
+               ticks: { callback: (val) => Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 2 }).format(val) } }
         },
         plugins: {
           legend: { display: false },
           tooltip: {
             mode: "index", intersect: false,
             callbacks: {
-              title: (items) =>
-                items?.[0]?.parsed?.x ? new Date(items[0].parsed.x).toISOString().slice(0,10) : "",
-              label: (ctx) =>
-                `mNAV: ${Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(ctx.parsed.y)}`
+              title: (items) => items?.[0]?.parsed?.x ? new Date(items[0].parsed.x).toISOString().slice(0,10) : "",
+              label: (ctx) => `mNAV: ${Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(ctx.parsed.y)}`
             }
           }
         }
