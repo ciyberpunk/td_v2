@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>mNAV Dashboard</title>
+  <link rel="stylesheet" href="styles.css" />
+  <!-- Chart.js + time adapter + d3 for CSV parsing -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>mNAV Dashboard</h1>
+    <p>mNAV = (Price × Number of Shares Outstanding) ÷ NAV</p>
+  </header>
+
+  <main id="charts">
+    <div class="loading">Loading mNAV charts…</div>
+  </main>
+
+  <footer>
+    <span>Source: <code>docs/data/dat_data.csv</code></span>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
