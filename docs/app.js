@@ -1,8 +1,9 @@
-// app.js — simple client-side mNAV for all EQ- tickers (v=simple-2)
+// app.js — simple client-side mNAV for all EQ- tickers (v=simple-3)
+// Robust header normalization (lowercase), strict parsing, daily dedupe.
 // mNAV = (Price × Number of Shares Outstanding) ÷ NAV
-// Shares are forward-filled; Price & NAV are NOT.
+// Shares forward-filled; Price & NAV NOT forward-filled.
 
-console.log("mNAV Pages app loaded: v=simple-2");
+console.log("mNAV Pages app loaded: v=simple-3");
 
 (async function () {
   const container = document.getElementById("charts");
@@ -14,12 +15,14 @@ console.log("mNAV Pages app loaded: v=simple-2");
 
   const url = "./data/dat_data.csv?ts=" + Date.now();
 
-  // --- helpers ---
+  // ---------- helpers ----------
   const trim = (s) => String(s ?? "").trim();
   const lc = (s) => trim(s).toLowerCase();
   const parseNum = (v) => {
     if (v === null || v === undefined || v === "") return NaN;
-    const n = Number(String(v).replace(/,/g, "").trim());
+    // strip thousands separators (commas/spaces)
+    const t = String(v).replace(/[,\s]+/g, "").trim();
+    const n = Number(t);
     return Number.isFinite(n) ? n : NaN;
   };
   const parseDate = (s) => {
@@ -33,7 +36,7 @@ console.log("mNAV Pages app loaded: v=simple-2");
     return isNaN(d) ? null : d;
   };
 
-  // --- 1) fetch CSV ---
+  // ---------- 1) fetch CSV ----------
   let text;
   try {
     const res = await fetch(url, { cache: "no-store" });
@@ -43,37 +46,40 @@ console.log("mNAV Pages app loaded: v=simple-2");
     return show(`Failed to fetch ${url}: ${e}`);
   }
 
-  // --- 2) parse & normalize headers ---
+  // ---------- 2) parse & normalize headers to lowercase ----------
   let rows = d3.csvParse(text);
   if (!rows.length) return show("CSV is empty.");
-  const headers = rows.columns.map((c) => trim(c));
+
+  // Build lowercase header map
+  const headersLC = rows.columns.map((c) => lc(c));
   const mapH = {};
-  rows.columns.forEach((orig, i) => (mapH[orig] = headers[i]));
+  rows.columns.forEach((orig, i) => (mapH[orig] = headersLC[i]));
+
+  // Re-key each row to lowercase headers
   rows = rows.map((r) => {
     const o = {};
     for (const k in r) o[mapH[k]] = r[k];
     return o;
   });
 
-  // --- 3) slice base metrics (strict names; shares allows substring backup) ---
+  // ---------- 3) slice base metrics ----------
   const priceRows  = rows.filter((r) => lc(r.metric) === "price");
   const navRows    = rows.filter((r) => ["net asset value", "nav"].includes(lc(r.metric)));
-  let   sharesRows = rows.filter((r) => lc(r.metric) === "number of shares outstanding");
-  if (!sharesRows.length) {
-    // fallback: any metric containing "number of shares"
-    sharesRows = rows.filter((r) => lc(r.metric).includes("number of shares"));
-  }
+  // Shares: allow variants; match if contains "number of shares"
+  const sharesRows = rows.filter((r) => lc(r.metric).includes("number of shares"));
   if (!priceRows.length || !navRows.length || !sharesRows.length) {
     return show("Missing required inputs: Price, NAV, or Number of Shares Outstanding.");
   }
 
-  // --- 4) tickers = EQ- columns (everything except date/metric) ---
+  // ---------- 4) tickers = EQ- columns (everything except date/metric) ----------
   const allCols = new Set();
   rows.forEach((r) => Object.keys(r).forEach((k) => allCols.add(k)));
-  const symbols = [...allCols].filter((k) => k !== "date" && k !== "metric" && /^eq-/i.test(k));
-  if (!symbols.length) return show("No EQ- ticker columns found.");
+  const symbolsLC = [...allCols].filter(
+    (k) => k !== "date" && k !== "metric" && /^eq-/.test(k) // already lowercase
+  );
+  if (!symbolsLC.length) return show("No EQ- ticker columns found.");
 
-  // Build quick lookup maps: { "YYYY-MM-DD" -> value } for each metric+symbol
+  // ---------- 5) compute mNAV per symbol (daily; shares ffill, price/nav not) ----------
   function buildMap(blockRows, sym) {
     const m = new Map();
     for (const r of blockRows) {
@@ -85,16 +91,14 @@ console.log("mNAV Pages app loaded: v=simple-2");
     return m;
   }
 
-  // --- 5) compute mNAV per symbol (daily; shares ffill, price/nav not) ---
   const bySymbol = {};
-  for (const sym of symbols) {
+  for (const sym of symbolsLC) {
     const pMap = buildMap(priceRows,  sym);
     const nMap = buildMap(navRows,    sym);
     const sMap = buildMap(sharesRows, sym);
 
     // Union of dates where any component exists
-    const dateSet = new Set([...pMap.keys(), ...nMap.keys(), ...sMap.keys()]);
-    const dates = [...dateSet].sort(); // "YYYY-MM-DD" order
+    const dates = [...new Set([...pMap.keys(), ...nMap.keys(), ...sMap.keys()])].sort();
 
     let lastShares;
     const series = [];
@@ -107,6 +111,7 @@ console.log("mNAV Pages app loaded: v=simple-2");
         const v = sMap.get(dStr);
         if (Number.isFinite(v)) lastShares = v;
       }
+
       const price = pMap.get(dStr);
       const nav   = nMap.get(dStr);
 
@@ -126,31 +131,43 @@ console.log("mNAV Pages app loaded: v=simple-2");
     bySymbol[sym] = dedup;
   }
 
-  // --- 6) render one chart per ticker ---
+  // ---------- 6) render one chart per ticker ----------
   container.innerHTML = "";
   const palette = ["#79c0ff","#ff7b72","#a5d6ff","#d2a8ff","#ffa657","#56d364","#1f6feb","#e3b341","#ffa198","#7ee787"];
   let idx = 0; const nextColor = () => palette[(idx++) % palette.length];
 
   let plotted = 0;
-  for (const sym of symbols) {
-    const series = bySymbol[sym];
+  for (const symLC of symbolsLC) {
+    const series = bySymbol[symLC];
     if (!series || series.length < 2) continue;
 
     const card = document.createElement("div"); card.className = "card";
-    const h2 = document.createElement("h2"); h2.textContent = sym; card.appendChild(h2);
+    const h2 = document.createElement("h2"); h2.textContent = symLC.toUpperCase(); card.appendChild(h2);
     const wrap = document.createElement("div"); wrap.className = "canvas-wrap";
     const canvas = document.createElement("canvas"); wrap.appendChild(canvas);
     card.appendChild(wrap); container.appendChild(card);
 
     new Chart(canvas.getContext("2d"), {
       type: "line",
-      data: { datasets: [{ label: "mNAV", data: series, parsing: false, pointRadius: 0, borderWidth: 1.5, tension: 0.2, borderColor: nextColor() }] },
+      data: {
+        datasets: [{
+          label: "mNAV",
+          data: series,
+          parsing: false,
+          pointRadius: 0,
+          borderWidth: 1.5,
+          tension: 0.2,
+          borderColor: nextColor()
+        }]
+      },
       options: {
         animation: false, responsive: true, maintainAspectRatio: false,
         scales: {
           x: { type: "time", time: { unit: "day" }, grid: { color: "#22252a" } },
-          y: { grid: { color: "#22252a" },
-               ticks: { callback: (v) => Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(v) } }
+          y: {
+            grid: { color: "#22252a" },
+            ticks: { callback: (v) => Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(v) }
+          }
         },
         plugins: {
           legend: { display: false },
