@@ -1,13 +1,16 @@
-// app.js — diag build (v=diag-1): compute mNAV from Price, Shares (ffill), NAV
-// and show a diagnostics panel (metrics found, tickers, point counts).
+// app.js — production mNAV dashboard
+// mNAV = (Price × Number of Shares Outstanding) ÷ NAV
+// - Shares forward-filled (event-driven)
+// - Price & NAV NOT forward-filled
+// - One daily time-series per EQ- ticker
 
-console.log("mNAV Pages app loaded: v=diag-1", new Date().toISOString());
+console.log("mNAV Pages app loaded: v=prod-3", new Date().toISOString());
 
 (async function () {
   const container = document.getElementById("charts");
   const show = (msg) => { container.innerHTML = `<div class="loading">${msg}</div>`; };
 
-  // Dark theme for Chart.js
+  // Dark theme defaults
   Chart.defaults.color = "#e6e6e6";
   Chart.defaults.borderColor = "#2a2d31";
 
@@ -18,7 +21,7 @@ console.log("mNAV Pages app loaded: v=diag-1", new Date().toISOString());
   const cleanHeader = (s) => String(s || "").trim();
   const parseNum = (v) => {
     if (v === null || v === undefined || v === "") return NaN;
-    const t = String(v).replace(/,/g, "").trim();
+    const t = String(v).replace(/,/g, "").trim();  // strip thousands separators
     const n = Number(t);
     return Number.isFinite(n) ? n : NaN;
   };
@@ -40,13 +43,12 @@ console.log("mNAV Pages app loaded: v=diag-1", new Date().toISOString());
     text = await res.text();
   } catch (e) { return show(`Failed to fetch ${url}: ${e}`); }
 
-  // 2) parse CSV
+  // 2) parse & normalize headers
   let rows;
   try { rows = d3.csvParse(text); }
   catch (e) { return show(`CSV parse error for ${url}: ${e}`); }
   if (!rows.length) return show("CSV is empty.");
 
-  // normalize headers & rows
   const headers = rows.columns.map(cleanHeader);
   const headerMap = {};
   rows.columns.forEach((orig, i) => (headerMap[orig] = headers[i]));
@@ -56,38 +58,25 @@ console.log("mNAV Pages app loaded: v=diag-1", new Date().toISOString());
     return o;
   });
 
-  // metric blocks
+  // 3) keep only the base metrics to reduce work
   const priceRows  = rows.filter((r) => lc(r.metric) === "price");
   const navRows    = rows.filter((r) => ["net asset value","nav"].includes(lc(r.metric)));
   const sharesRows = rows.filter((r) => lc(r.metric).includes("number of shares"));
 
-  // EQ- columns
+  if (!priceRows.length || !navRows.length || !sharesRows.length) {
+    const missing = [];
+    if (!priceRows.length)  missing.push("Price");
+    if (!navRows.length)    missing.push("NAV");
+    if (!sharesRows.length) missing.push("Number of Shares Outstanding");
+    return show("Missing required inputs: " + missing.join(", "));
+  }
+
+  // 4) EQ- ticker columns
   const allCols = new Set(); rows.forEach(r => Object.keys(r).forEach(k => allCols.add(k)));
   const symbols = [...allCols].filter(k => k !== "date" && k !== "metric" && /^eq-/i.test(k));
+  if (!symbols.length) return show("No EQ- ticker columns found in dat_data.csv");
 
-  // DIAGNOSTICS PANEL
-  const diag = document.createElement("div");
-  diag.className = "card";
-  diag.innerHTML = `
-    <h2>Diagnostics</h2>
-    <div style="font-size:13px; line-height:1.5">
-      <div>rows: <b>${rows.length}</b></div>
-      <div>columns: <code>${headers.join(", ")}</code></div>
-      <div>metrics found: <code>${[...new Set(rows.map(r => lc(r.metric)))].join(", ")}</code></div>
-      <div>has Price: <b>${!!priceRows.length}</b>,
-           has NAV: <b>${!!navRows.length}</b>,
-           has Shares: <b>${!!sharesRows.length}</b></div>
-      <div>EQ tickers: <code>${symbols.join(", ") || "(none)"}</code></div>
-    </div>`;
-  const top = document.getElementById("charts");
-  top.parentNode.insertBefore(diag, top);
-
-  if (!priceRows.length || !navRows.length || !sharesRows.length) {
-    return show("Missing required inputs (see diagnostics above).");
-  }
-  if (!symbols.length) return show("No EQ- ticker columns found.");
-
-  // per-metric maps
+  // per-metric maps { "YYYY-MM-DD" -> value }
   function buildMap(blockRows, sym) {
     const m = new Map();
     for (const r of blockRows) {
@@ -98,9 +87,8 @@ console.log("mNAV Pages app loaded: v=diag-1", new Date().toISOString());
     return m;
   }
 
-  // 3) compute mNAV per symbol
+  // 5) compute mNAV per symbol (daily)
   const bySymbol = {};
-  const counts = {};
   for (const sym of symbols) {
     const pMap = buildMap(priceRows, sym);
     const nMap = buildMap(navRows, sym);
@@ -108,6 +96,7 @@ console.log("mNAV Pages app loaded: v=diag-1", new Date().toISOString());
 
     const dateSet = new Set([...pMap.keys(), ...nMap.keys(), ...sMap.keys()]);
     const dates = [...dateSet].sort();
+
     let lastShares = undefined;
     const series = [];
 
@@ -115,6 +104,7 @@ console.log("mNAV Pages app loaded: v=diag-1", new Date().toISOString());
       const d = parseDate(dStr);
       if (!d) continue;
 
+      // forward-fill shares
       if (sMap.has(dStr)) {
         const v = sMap.get(dStr);
         if (Number.isFinite(v)) lastShares = v;
@@ -127,7 +117,7 @@ console.log("mNAV Pages app loaded: v=diag-1", new Date().toISOString());
       }
     }
 
-    // dedupe by day (keep last)
+    // de-dupe by day (keep last point per date)
     const dedup = [];
     let lastKey = "";
     for (const pt of series) {
@@ -137,21 +127,14 @@ console.log("mNAV Pages app loaded: v=diag-1", new Date().toISOString());
     }
 
     bySymbol[sym] = dedup;
-    counts[sym] = dedup.length;
   }
 
-  // add counts to diagnostics
-  const countsDiv = document.createElement("div");
-  countsDiv.style.cssText = "font-size:13px; line-height:1.4; margin-top:8px;";
-  countsDiv.innerHTML = "<div><b>mNAV points per ticker:</b></div>" +
-    Object.entries(counts).sort().map(([k,v]) => `<div>${k}: ${v}</div>`).join("");
-  diag.appendChild(countsDiv);
-
-  // 4) draw charts
+  // 6) draw charts
   container.innerHTML = "";
 
   const palette = ["#79c0ff","#ff7b72","#a5d6ff","#d2a8ff","#ffa657","#56d364","#1f6feb","#e3b341","#ffa198","#7ee787"];
-  let colorIdx = 0; const nextColor = () => palette[(colorIdx++) % palette.length];
+  let colorIdx = 0;
+  const nextColor = () => palette[(colorIdx++) % palette.length];
 
   let plotted = 0;
   for (const sym of symbols) {
@@ -194,7 +177,8 @@ console.log("mNAV Pages app loaded: v=diag-1", new Date().toISOString());
           y: {
             grid: { color: "#22252a" },
             ticks: {
-              callback: (val) => Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 2 }).format(val)
+              callback: (val) =>
+                Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 2 }).format(val)
             }
           }
         },
@@ -203,10 +187,10 @@ console.log("mNAV Pages app loaded: v=diag-1", new Date().toISOString());
           tooltip: {
             mode: "index", intersect: false,
             callbacks: {
-              title: (items) => items?.[0]?.parsed?.x
-                ? new Date(items[0].parsed.x).toISOString().slice(0,10)
-                : "",
-              label: (ctx) => `mNAV: ${Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(ctx.parsed.y)}`
+              title: (items) =>
+                items?.[0]?.parsed?.x ? new Date(items[0].parsed.x).toISOString().slice(0,10) : "",
+              label: (ctx) =>
+                `mNAV: ${Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(ctx.parsed.y)}`
             }
           }
         }
@@ -216,5 +200,5 @@ console.log("mNAV Pages app loaded: v=diag-1", new Date().toISOString());
     plotted++;
   }
 
-  if (!plotted) show("No plottable mNAV series (see diagnostics above).");
+  if (!plotted) show("No plottable mNAV series (check base metrics in the CSV).");
 })();
