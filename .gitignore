@@ -31,5 +31,6 @@ dist/
 logs/
 *.log
 
-# Local data (keep GitHub Pages data in docs/data tracked)
-data/
+# Ignore only the TOP-LEVEL data dir; keep docs/data for Pages
+/data/
+!docs/data/
