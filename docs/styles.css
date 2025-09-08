@@ -1,101 +1,72 @@
-/* Mobile-first, 1×n on phones → 2×n on wider screens; dark theme */
-:root{
-  --bg:#0d1117;
-  --panel:#161b22;
-  --border:#2a2d31;
-  --text:#e6e6e6;
-  --muted:#9aa3af;
-  --accent:#79c0ff;
-
-  /* Chart height by breakpoint */
-  --chart-h:240px; /* phones */
-}
-*{box-sizing:border-box}
-
-html,body{
-  margin:0;
-  padding:0;
-  background:var(--bg);
-  color:var(--text);
-  font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji";
-  -webkit-text-size-adjust:100%;
+:root {
+  --bg: #0b0d10;
+  --panel: #12151a;
+  --text: #e6e9ef;
+  --muted: #94a3b8;
+  --grid-gap: 16px;
+  --card-radius: 16px;
+  --shadow: 0 6px 18px rgba(0,0,0,0.35);
+  --accent: #4f8cff;
+  --accent-2: #22c55e;
+  --danger: #ef4444;
 }
 
-.site-header,.site-footer{
-  max-width:1200px;
-  margin:calc(16px + env(safe-area-inset-top)) auto 12px auto;
-  padding:0 16px;
-}
-.site-header h1{margin:0 0 6px 0;font-size:22px}
-.site-header p{margin:0 0 10px 0;color:var(--muted)}
-.site-footer{color:var(--muted)}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font: 14px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
 
-/* GRID: 1 column on mobile, 2 columns >= 900px */
-.charts-grid{
-  max-width:1200px;
-  margin:10px auto 28px auto;
-  padding:0 16px;
-  display:grid;
-  grid-template-columns:1fr;        /* default: single column */
-  gap:14px;
+.site-header, .site-footer { padding: 24px; text-align: center; }
+.site-header h1 { margin: 0 0 6px; font-size: 28px; font-weight: 700; }
+.sub { color: var(--muted); margin: 0; }
+
+.section { padding: 20px 24px; }
+.section-head h2 { margin: 0 0 6px; font-size: 20px; }
+.section-desc { margin: 0 0 12px; color: var(--muted); }
+
+.charts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--grid-gap);
 }
-@media (min-width:900px){
-  .charts-grid{ grid-template-columns:1fr 1fr; } /* 2 columns on larger screens */
+@media (max-width: 900px) {
+  .charts-grid { grid-template-columns: 1fr; }
 }
 
-.card{
-  background:var(--panel);
-  border:1px solid var(--border);
-  border-radius:14px;
-  padding:12px;
-  box-shadow:0 0 0 1px rgba(0,0,0,.1) inset;
-}
-.card-header{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:8px;
-  margin:0 0 8px 0;
-}
-.card h2{
-  margin:0;
-  font-size:16px;
-  letter-spacing:.3px;
+.chart-card {
+  background: var(--panel);
+  border-radius: var(--card-radius);
+  box-shadow: var(--shadow);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-/* Per-chart 1M/3M toggles — bigger touch targets */
-.toggle-group{display:inline-flex;gap:6px}
-.toggle{
-  background:var(--panel);
-  color:var(--text);
-  border:1px solid var(--border);
-  border-radius:10px;
-  padding:8px 12px;          /* larger tap target */
-  min-height:36px;           /* ~44px including line height/padding */
-  font-size:14px;
-  line-height:1.1;
-  cursor:pointer;
-  -webkit-tap-highlight-color:transparent;
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
-.toggle.active{
-  outline:2px solid var(--accent);
-  border-color:var(--accent);
+.card-head h3 { margin: 0; font-size: 16px; }
+
+.toggles { display: flex; gap: 6px; }
+.toggle-btn {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid #2a2f39;
+  border-radius: 999px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.toggle-btn:hover { border-color: var(--accent); }
+.toggle-btn.active { background: #1a2230; border-color: var(--accent); }
+
+.card-note {
+  margin: 4px 2px 0;
+  color: var(--muted);
+  font-size: 12px;
 }
 
-.canvas-wrap{
-  position:relative;
-  width:100%;
-  height:var(--chart-h);
-  touch-action:pan-y;        /* allow vertical scroll on touch */
-}
-
-/* Slightly taller charts on tablets/desktops */
-@media (min-width:600px){ :root{ --chart-h:280px; } }
-@media (min-width:1024px){ :root{ --chart-h:320px; } }
-
-.loading{color:var(--muted);padding:20px}
-
-/* Respect users who prefer reduced motion (no subtle animations anyway) */
-@media (prefers-reduced-motion: reduce){
-  *{scroll-behavior:auto !important}
-}
+/* Chart.js tooltip / legend tweak for dark mode */
+.chartjs-render-monitor { filter: none; }
