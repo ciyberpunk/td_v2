@@ -33,17 +33,19 @@
 <body>
   <main class="container">
     <h1>Digital Asset Treasuries Dashboard</h1>
-    <p class="subtitle">Live mNAV & ETF flow tracking (GitHub Pages)</p>
+    <p class="subtitle">mNAV (6 tickers) and Bitcoin/Ethereum ETF flows</p>
 
+    <!-- mNAV section -->
     <section id="mnav">
-      <h2>mNAV (Market NAV) — Treasuries</h2>
-      <p class="hint">mNAV = (Share Price × Number of Shares) ÷ Net Asset Value. Toggle each chart for 1M / 3M. Data from Artemis (daily).</p>
+      <h2>mNAV (Market NAV)</h2>
+      <p class="hint">Definition used here: <strong>mNAV = (Price × Fully Diluted Shares) ÷ NAV</strong>. We show 6 tickers in this order: MSTR, MTPLF, SBET, BMNR, DFDV, UPXI.</p>
       <div id="mnav-grid" class="grid"></div>
     </section>
 
+    <!-- ETF flows section -->
     <section id="etf">
-      <h2>ETF Flows (Farside) — USD millions</h2>
-      <p class="hint">Daily net flows (bars, positive/negative) with cumulative (line). USD-only sums.</p>
+      <h2>ETF Flows</h2>
+      <p class="hint">Bars: daily net inflow/outflow. Line: all-time cumulative invested amount up to each day.</p>
 
       <div class="grid">
         <div class="card">
@@ -72,7 +74,7 @@
       </div>
     </section>
 
-    <div class="foot">Built with GitHub Pages. Data: Artemis (mNAV), Farside (ETF). Updated via GitHub Actions.</div>
+    <div class="foot">Built on GitHub Pages • Data sources: Artemis (mNAV inputs), Farside (ETF flows)</div>
   </main>
 </body>
 </html>
