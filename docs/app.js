@@ -1,35 +1,37 @@
-/* mNAV + ETF charts (client-side)
-   Reads:
-     - data/dat_data.csv  → per-ticker mNAV lines (daily)
-     - data/etf_data.csv  → BTC/ETH ETF flows: bars (daily), line (cumulative)
-*/
+/* mNAV + ETF charts (client-side, robust + diagnostics) */
 (() => {
-  console.log("mNAV + ETF app loaded: v=fix-5", new Date().toISOString());
+  const VERSION = "diag-7";
+  const diag = (msg) => {
+    const el = document.getElementById("diag");
+    if (el) el.textContent = `[${VERSION}] ${msg}`;
+    console.log(`[${VERSION}] ${msg}`);
+  };
 
-  // -------- utils --------
+  diag("booting…");
+
+  // ---- utils ----
   async function fetchCSV(path) {
     const url = `${path}?t=${Date.now()}`; // cache-bust for viewers
     const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) throw new Error(`Failed to load ${path}: ${res.status}`);
-    const text = await res.text();
-    return parseCSV(text);
+    return res.text();
   }
-  function parseCSV(text) {
-    const lines = text.trim().split(/\r?\n/);
-    if (lines.length === 0) return [];
-    const headers = lines[0].split(",").map(h => h.trim());
-    return lines.slice(1).map(line => {
-      const cols = line.split(","); // OK: our CSV has no quoted commas
-      const obj = {};
-      headers.forEach((h, i) => obj[h] = cols[i] !== undefined ? cols[i] : "");
-      return obj;
-    });
+
+  async function loadCSVObjects(path) {
+    const text = await fetchCSV(path);
+    // Robust parsing via Papa
+    const parsed = Papa.parse(text, { header: true, dynamicTyping: false, skipEmptyLines: true });
+    if (parsed.errors && parsed.errors.length) {
+      console.warn("Papa parse errors:", parsed.errors.slice(0,3));
+    }
+    return parsed.data || [];
   }
+
   function toDate(s) { return new Date(s + "T00:00:00"); }
   function daysAgo(days) { const d = new Date(); d.setDate(d.getDate() - days); d.setHours(0,0,0,0); return d; }
   function filterByDays(rows, days) { const c = daysAgo(days); return rows.filter(r => toDate(r.date) >= c); }
 
-  // -------- colors & chart defaults --------
+  // ---- colors & Chart.js defaults ----
   const colorLine = "rgba(79,140,255,0.95)";
   const colorBarPos = "rgba(34,197,94,0.65)";
   const colorBarNeg = "rgba(239,68,68,0.70)";
@@ -45,15 +47,16 @@
   Chart.defaults.plugins.tooltip.borderColor = tooltipBd;
   Chart.defaults.plugins.tooltip.borderWidth = 1;
 
-  // ========================= mNAV =========================
+  // ================= mNAV =================
   async function renderMNAV() {
     try {
-      const dat = await fetchCSV("data/dat_data.csv");
+      const dat = await loadCSVObjects("data/dat_data.csv");
+      diag(`mNAV: loaded ${dat.length} rows`);
       if (!dat.length) return;
 
       // header map (case-insensitive)
       const lc = s => (s || "").toLowerCase();
-      const head = Object.keys(dat[0]).reduce((acc, k) => (acc[lc(k)] = k, acc), {});
+      const head = Object.keys(dat[0]).reduce((a, k) => (a[lc(k)] = k, a), {});
       const K = {
         date: head["date"] || "date",
         ticker: head["ticker"] || head["symbol"] || "ticker",
@@ -78,8 +81,14 @@
         byT.get(t).push({ date: d, v });
       }
 
-      const desiredOrder = ["eq-mstr","eq-mtplf","eq-sbet","eq-bmnr","eq-dfdv","eq-upxi"];
       const all = Array.from(byT.keys());
+      diag(`mNAV: detected ${all.length} tickers: ${all.join(", ")}`);
+      if (all.length === 0) {
+        diag("mNAV: no tickers found — check CSV headers/columns");
+        return;
+      }
+
+      const desiredOrder = ["eq-mstr","eq-mtplf","eq-sbet","eq-bmnr","eq-dfdv","eq-upxi"];
       const ordered = [...desiredOrder.filter(x => all.includes(x)), ...all.filter(x => !desiredOrder.includes(x))];
 
       const grid = document.getElementById("mnav-grid");
@@ -103,12 +112,12 @@
         const series = (byT.get(sym) || []).slice().sort((a,b) => a.date.localeCompare(b.date));
         const ctx = card.querySelector(`#mnav-${sym}`).getContext("2d");
 
-        const fullLabels = series.map(r => r.date);
-        const fullData = series.map(r => +r.v || 0);
-
         const chart = new Chart(ctx, {
           type: "line",
-          data: { labels: fullLabels, datasets: [{ label: "mNAV", data: fullData, borderColor: colorLine, borderWidth: 2, pointRadius: 0, tension: 0.25 }] },
+          data: {
+            labels: series.map(r => r.date),
+            datasets: [{ label: "mNAV", data: series.map(r => +r.v || 0), borderColor: colorLine, borderWidth: 2, pointRadius: 0, tension: 0.25 }]
+          },
           options: {
             maintainAspectRatio: false,
             animation: false,
@@ -123,6 +132,7 @@
           }
         });
 
+        // toggles
         const btns = card.querySelectorAll(".toggle-btn");
         const update = days => {
           const sub = filterByDays(series.map(r => ({date:r.date, v:r.v})), days);
@@ -137,11 +147,12 @@
         update(30);
       }
     } catch (e) {
-      console.error("mNAV load/render failed:", e);
+      diag(`mNAV error: ${e.message}`);
+      console.error(e);
     }
   }
 
-  // ========================= ETF =========================
+  // ================= ETF =================
   function buildEtfDatasets(rows, asset) {
     const daily = rows.filter(r => r.metric === "etf_net_flow_usd_millions")
                       .map(r => ({ date: r.date, v: +r[asset] || 0 }))
@@ -167,7 +178,7 @@
       },
       options: {
         maintainAspectRatio: false,
-        animation: false,  // prevents initial warp
+        animation: false,           // prevents initial warp
         interaction: { mode: "index", intersect: false },
         plugins: { legend: { display: true } },
         scales: {
@@ -197,7 +208,8 @@
   }
   async function renderETF() {
     try {
-      const rows = await fetchCSV("data/etf_data.csv");
+      const rows = await loadCSVObjects("data/etf_data.csv");
+      diag(`ETF: loaded ${rows.length} rows`);
       const grid = document.getElementById("etf-grid");
       // BTC
       {
@@ -216,11 +228,15 @@
         updateEtfChart(chart, rows, "ETH", 30);
       }
     } catch (e) {
-      console.error("ETF load/render failed:", e);
+      diag(`ETF error: ${e.message}`);
+      console.error(e);
     }
   }
 
   // boot
-  renderMNAV();
-  renderETF();
+  (async () => {
+    await renderMNAV();
+    await renderETF();
+    diag("ready.");
+  })();
 })();
