@@ -1,23 +1,24 @@
-// app.js — client-side mNAV with per-chart 1M/3M toggles, fixed 2×n layout (v=ui-5)
-// mNAV = (Price × Shares Outstanding) ÷ NAV
-// Shares forward-filled; Price & NAV NOT forward-filled.
-// Order: MSTR + MTPLF (top), SBET + BMNR (middle), DFDV + UPXI (bottom).
+// app.js — mobile-first mNAV dashboard (v=mobile-3)
+// - Client-side compute: mNAV = (Price × Shares Outstanding) ÷ NAV
+// - Shares forward-filled; Price & NAV NOT forward-filled
+// - Per-chart 1M/3M toggles, hover tooltips, 1-col on mobile / 2-col on desktop
+// - Small-screen tick density tuning + decimation for perf
 
-console.log("mNAV Pages app loaded: v=ui-5");
+console.log("mNAV Pages app loaded: v=mobile-3");
 
 (async function () {
   const container = document.getElementById("charts");
   const show = (msg) => (container.innerHTML = `<div class="loading">${msg}</div>`);
 
-  // Dark theme defaults
+  // Chart.js dark defaults
   Chart.defaults.color = "#e6e6e6";
   Chart.defaults.borderColor = "#2a2d31";
 
-  const url = "./data/dat_data.csv?ts=" + Date.now();
+  const url = "./data/dat_data.csv?ts=" + Date.now(); // always fetch fresh CSV
   const DAY_MS = 24 * 60 * 60 * 1000;
 
   // Desired order (labels without EQ-)
-  const DESIRED_ORDER = ["MSTR", "MTPLF", "SBET", "BMNR", "DFDV", "UPXI"];
+  const ORDER = ["MSTR","MTPLF","SBET","BMNR","DFDV","UPXI"];
 
   // ---------- helpers ----------
   const trim = (s) => String(s ?? "").trim();
@@ -30,11 +31,10 @@ console.log("mNAV Pages app loaded: v=ui-5");
     const n = Number(t);
     return Number.isFinite(n) ? n : NaN;
   };
-  // UNIX ms (UTC midnight if YYYY-MM-DD)
   const toDayTS = (s) => {
     const raw = trim(s);
     if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-      const ms = Date.parse(raw + "T00:00:00Z"); // avoid TZ drift
+      const ms = Date.parse(raw + "T00:00:00Z"); // UTC midnight to avoid TZ drift
       return Number.isFinite(ms) ? ms : NaN;
     }
     const ms = Date.parse(raw);
@@ -51,10 +51,9 @@ console.log("mNAV Pages app loaded: v=ui-5");
     text = await res.text();
   } catch (e) { return show(`Failed to fetch ${url}: ${e}`); }
 
-  // ---------- 2) parse & normalize headers (lowercase) ----------
+  // ---------- 2) parse & normalize headers (lowercase keys) ----------
   let rows = d3.csvParse(text);
   if (!rows.length) return show("CSV is empty.");
-
   const headersLC = rows.columns.map((c) => lc(c));
   const headerMap = {};
   rows.columns.forEach((orig, i) => (headerMap[orig] = headersLC[i]));
@@ -67,10 +66,10 @@ console.log("mNAV Pages app loaded: v=ui-5");
 
   // ---------- 3) base metrics ----------
   const priceRows = rows.filter((r) => isIn(r._m, ["price"]));
-  const navRows   = rows.filter((r) => isIn(r._m, ["nav", "net_asset_value"]));
+  const navRows   = rows.filter((r) => isIn(r._m, ["nav","net_asset_value"]));
   const sharesRows = rows.filter((r) => {
     const m = r._m;
-    if (m.includes("fully") && m.includes("diluted")) return false;
+    if (m.includes("fully") && m.includes("diluted")) return false; // exclude FD shares
     return (
       isIn(m, [
         "number_of_shares_outstanding",
@@ -94,9 +93,9 @@ console.log("mNAV Pages app loaded: v=ui-5");
   );
   if (!allSymbols.length) return show("No EQ- ticker columns found.");
 
-  // Filter & order symbols to match DESIRED_ORDER (skip missing)
-  const presentLabels = new Map(allSymbols.map(sym => [tickerLabel(sym), sym])); // label -> symbol
-  const symbols = DESIRED_ORDER.map(lbl => presentLabels.get(lbl)).filter(Boolean);
+  // Filter & order by ORDER list (skip missing)
+  const present = new Map(allSymbols.map(sym => [tickerLabel(sym), sym])); // label -> symbol
+  const symbols = ORDER.map(lbl => present.get(lbl)).filter(Boolean);
   if (!symbols.length) return show("Desired tickers not found in CSV.");
 
   // ---------- 5) compute FULL mNAV series per symbol ----------
@@ -113,8 +112,8 @@ console.log("mNAV Pages app loaded: v=ui-5");
 
   const fullBySymbol = {};
   for (const sym of symbols) {
-    const pMap = buildMap(priceRows,  sym);
-    const nMap = buildMap(navRows,    sym);
+    const pMap = buildMap(priceRows, sym);
+    const nMap = buildMap(navRows,   sym);
     const sMap = buildMap(sharesRows, sym);
 
     const dates = [...new Set([...pMap.keys(), ...nMap.keys(), ...sMap.keys()])].sort();
@@ -142,8 +141,8 @@ console.log("mNAV Pages app loaded: v=ui-5");
     const series = [];
     let lastKey = "";
     for (const pt of raw) {
-      const key = new Date(pt.x).toISOString().slice(0, 10);
-      if (series.length && key === new Date(series[series.length - 1].x).toISOString().slice(0, 10)) {
+      const key = new Date(pt.x).toISOString().slice(0,10);
+      if (series.length && key === new Date(series[series.length - 1].x).toISOString().slice(0,10)) {
         series[series.length - 1] = pt;
       } else {
         series.push(pt);
@@ -152,17 +151,26 @@ console.log("mNAV Pages app loaded: v=ui-5");
     fullBySymbol[sym] = series;
   }
 
-  // ---------- 6) render cards (each with its own 1M/3M toggle) ----------
+  // ---------- 6) render per chart (with 1M/3M toggles) ----------
   container.innerHTML = "";
+
+  // simple palette
   const palette = ["#79c0ff","#ff7b72","#a5d6ff","#d2a8ff","#ffa657","#56d364","#1f6feb","#e3b341","#ffa198","#7ee787"];
   let colorIndex = 0;
 
-  function filterWindow(series, days) {
+  // adaptive tick density for mobile
+  const maxTicks = (axis) => {
+    const w = Math.max(320, Math.min(window.innerWidth, 1200));
+    if (axis === "x") return w < 380 ? 4 : w < 768 ? 6 : 10;
+    return 6;
+  };
+
+  const filterWindow = (series, days) => {
     if (!series || !series.length) return [];
     const maxX = series[series.length - 1].x;
     const cutoff = maxX - days * DAY_MS;
     return series.filter((pt) => pt.x >= cutoff);
-  }
+  };
 
   for (const sym of symbols) {
     const fullSeries = fullBySymbol[sym];
@@ -179,7 +187,6 @@ console.log("mNAV Pages app loaded: v=ui-5");
     const btn3m = document.createElement("button"); btn3m.className = "toggle";          btn3m.textContent = "3M"; btn3m.dataset.days = "90";
     toggles.appendChild(btn1m); toggles.appendChild(btn3m);
     header.appendChild(toggles);
-
     card.appendChild(header);
 
     const wrap = document.createElement("div"); wrap.className = "canvas-wrap";
@@ -188,33 +195,38 @@ console.log("mNAV Pages app loaded: v=ui-5");
     container.appendChild(card);
 
     const color = palette[(colorIndex++) % palette.length];
-
-    // Initial dataset = 1M
     let windowDays = 30;
-    const initial = filterWindow(fullSeries, windowDays);
 
     const chart = new Chart(canvas.getContext("2d"), {
       type: "line",
-      data: {
-        datasets: [{
-          label: "mNAV",
-          data: initial,        // [{x: ms, y: number}]
-          parsing: false,
-          pointRadius: 0,
-          borderWidth: 1.5,
-          tension: 0.2,
-          borderColor: color,
-          spanGaps: true
-        }]
-      },
+      data: { datasets: [{
+        label: "mNAV",
+        data: filterWindow(fullSeries, windowDays),
+        parsing: false,
+        pointRadius: 0,
+        borderWidth: 1.5,
+        tension: 0.2,
+        borderColor: color,
+        spanGaps: true
+      }]},
       options: {
         animation: false,
         responsive: true,
         maintainAspectRatio: false,
         scales: {
-          x: { type: "time", time: { unit: "day" }, grid: { color: "#22252a" } },
-          y: { grid: { color: "#22252a" },
-               ticks: { callback: (v) => Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(v) } }
+          x: {
+            type: "time",
+            time: { unit: "day" },
+            grid: { color: "#22252a" },
+            ticks: { maxTicksLimit: maxTicks("x") }
+          },
+          y: {
+            grid: { color: "#22252a" },
+            ticks: {
+              maxTicksLimit: maxTicks("y"),
+              callback: (v) => Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(v)
+            }
+          }
         },
         plugins: {
           legend: { display: false },
@@ -231,29 +243,40 @@ console.log("mNAV Pages app loaded: v=ui-5");
                 return `mNAV: ${Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(val)}`;
               }
             }
+          },
+          // Built-in decimation for smoother mobile rendering on long series
+          decimation: {
+            enabled: true,
+            algorithm: "lttb",
+            samples: 200
           }
         }
       }
     });
 
-    // Per-card toggle logic
-    function setActive(btn) {
+    // Per-card toggle behavior
+    const setActive = (btn) => {
       btn1m.classList.remove("active");
       btn3m.classList.remove("active");
       btn.classList.add("active");
-    }
-    function updateWindow(days) {
+    };
+    const updateWindow = (days) => {
       windowDays = days;
-      const data = filterWindow(fullSeries, windowDays);
-      chart.data.datasets[0].data = data;
+      chart.data.datasets[0].data = filterWindow(fullSeries, windowDays);
       chart.update("none");
-    }
+    };
 
     btn1m.addEventListener("click", (e) => { e.preventDefault(); setActive(btn1m); updateWindow(30); });
     btn3m.addEventListener("click", (e) => { e.preventDefault(); setActive(btn3m); updateWindow(90); });
+
+    // Re-tune ticks on resize/orientation changes
+    window.addEventListener("resize", () => {
+      chart.options.scales.x.ticks.maxTicksLimit = maxTicks("x");
+      chart.options.scales.y.ticks.maxTicksLimit = maxTicks("y");
+      chart.update("none");
+    }, { passive: true });
   }
 
-  // If nothing rendered (e.g., no valid series)
   if (!container.querySelector(".card")) {
     show("No plottable mNAV series for the selected tickers.");
   }
