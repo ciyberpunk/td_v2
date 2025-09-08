@@ -1,4 +1,4 @@
-/* td_v2 frontend — mNAV uses (Price × num_of_shares) ÷ NAV */
+/* td_v2 frontend (robust) — mNAV = (Price × num_of_shares) / NAV */
 (() => {
   "use strict";
 
@@ -11,8 +11,7 @@
   const $ = (s) => document.querySelector(s);
   const el = (t,c) => Object.assign(document.createElement(t), c?{className:c}:{});
   const fmtDate = (d) => { const x = (d instanceof Date) ? d : new Date(d); return isNaN(+x) ? "" : x.toISOString().slice(0,10); };
-  const lastNDays = (a,n) => a.slice(-n);
-  const cleanTicker = (t) => String(t||"").replace(/^EQ[:\s]+/i,"").trim().toUpperCase();
+  const lastNDays = (arr,n) => arr.slice(-n);
 
   function diag(msg) {
     let bar = $("#diag"); if (!bar) {
@@ -26,6 +25,7 @@
     console.warn("[td_v2]", msg);
   }
 
+  // ---------- CSV loader (tries multiple locations) ----------
   function loadCSVOnce(path) {
     return new Promise((resolve, reject) => {
       if (!window.Papa) return reject(new Error("Papa Parse not loaded"));
@@ -42,21 +42,41 @@
   }
   async function loadCSVAny(candidates, label) {
     let lastErr;
-    for (const p of candidates) {
-      try { return await loadCSVOnce(p); } catch (e) { lastErr = e; }
-    }
+    for (const p of candidates) { try { return await loadCSVOnce(p); } catch (e) { lastErr = e; } }
     throw new Error(`${label}: none of [${candidates.join(", ")}] worked → ${lastErr?.message || lastErr}`);
   }
 
+  // ---------- Helpers to normalize columns / tickers ----------
+  const lowerKeys = (o) => Object.fromEntries(Object.entries(o).map(([k,v]) => [String(k).toLowerCase(), v]));
+
+  // pick a numeric field by trying exact candidates, then fuzzy "contains"
+  function pickNum(rowLower, exactList, fuzzyList = []) {
+    for (const k of exactList) if (rowLower[k] !== undefined && Number.isFinite(+rowLower[k])) return +rowLower[k];
+    for (const frag of fuzzyList) {
+      const key = Object.keys(rowLower).find(kk => kk.includes(frag));
+      if (key && Number.isFinite(+rowLower[key])) return +rowLower[key];
+    }
+    return NaN;
+  }
+
+  // Map any messy ticker (e.g., "EQ MSTR", "MSTR US Equity") to one of our 6
+  function mapTicker(raw) {
+    if (!raw) return "";
+    const S = String(raw).toUpperCase();
+    for (const want of DESIRED_TICKERS) if (S.includes(want)) return want; // substring catch-all
+    // fallback: strip EQ prefixes & non-alnum, take first token
+    let s = S.replace(/^EQ[:\s-]+/,"").replace(/EQUITY/g,"").replace(/[\.\-:]/g," ").trim();
+    let tok = s.split(/\s+/)[0].replace(/[^A-Z0-9]/g,"");
+    return DESIRED_TICKERS.includes(tok) ? tok : "";
+  }
+
+  // ---------- Chart factories ----------
   function makeLine(ctx, labels, values, label) {
     return new Chart(ctx, {
       type: "line",
       data: { labels, datasets: [{ label, data: values, tension: 0.2 }] },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins:{ legend:{ display:false }},
-        scales: { x: { ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 8 } } },
-      }
+      options: { responsive: true, maintainAspectRatio: false, plugins:{ legend:{ display:false } },
+                 scales: { x: { ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 8 } } } }
     });
   }
   function dualAxisChart(ctx, labels, bars, line, title) {
@@ -81,55 +101,45 @@
     });
   }
 
-  // ----- mNAV with num_of_shares -----
+  // ---------- mNAV ----------
   async function initMnav() {
     try {
       const { rows, path } = await loadCSVAny(CSV_CANDIDATES.dat, "dat_data.csv");
-      diag(`mNAV source: ${path}`);
-
-      const norm = rows.map(r => {
-        const date = r.date ?? r.Date ?? r.dt ?? r.Dt;
-        const ticker = cleanTicker(r.ticker ?? r.Ticker ?? r.symbol ?? r.Symbol ?? r.eq_ticker ?? r.asset);
-
-        // price variants
-        const price = +(
-          r.price ?? r.Price ?? r.close ?? r.Close ?? r.last ?? r.Last ?? r.px_last ?? r.PX_LAST
-        );
-
-        // strictly prefer number of shares (basic/outstanding)
-        const shares = +(
-          r.num_of_shares ?? r.NUM_OF_SHARES ?? r.num_shares ?? r.numShares ??
-          r.shares_outstanding ?? r.SharesOutstanding ?? r.shares_out ?? r.shares_basic ??
-          r.basic_shares ?? r.shares ?? r.Shares
-        );
-
-        // NAV variants
-        const nav = +(
-          r.nav ?? r.NAV ?? r.net_asset_value ?? r.NetAssetValue
-        );
-
-        const fallback_mnav = +(r.mnav ?? r.MNAV ?? r.value ?? r.Value);
-
+      const outCounts = {};
+      const norm = rows.map(orig => {
+        const r = lowerKeys(orig);
+        const date = r.date || r.dt || r.timestamp;
+        const ticker = mapTicker(r.ticker || r.symbol || r.eq_ticker || r.asset || r.name);
+        const price = pickNum(r,
+          ["price","close","px_last","last"],
+          ["price","close","px_last","last"]);
+        const shares = pickNum(r,
+          ["num_of_shares","num_shares","nums","shares","shares_outstanding","shares_basic","shares_out","sharecount"],
+          ["num_of_shares","num_shares","shares_outstanding","shares_basic","shares"]);
+        const nav = pickNum(r,
+          ["nav","nav_usd","net_asset_value"],
+          ["nav"]);
         const mnav = (Number.isFinite(price) && Number.isFinite(shares) && Number.isFinite(nav) && nav !== 0)
           ? (price * shares) / nav
-          : (Number.isFinite(fallback_mnav) ? fallback_mnav : NaN);
-
+          : NaN;
+        if (ticker) outCounts[ticker] = (outCounts[ticker] || 0) + (Number.isFinite(mnav) ? 1 : 0);
         return { date: fmtDate(date), ticker, mnav };
       })
       .filter(x => x.date && x.ticker && Number.isFinite(x.mnav))
       .sort((a,b) => a.date.localeCompare(b.date));
 
-      // Dedup per (ticker,date)
-      const byTD = new Map();
-      for (const r of norm) byTD.set(`${r.ticker}__${r.date}`, r);
-      const dedup = Array.from(byTD.values());
+      // dedup per (ticker,date)
+      const dedupMap = new Map();
+      for (const r of norm) dedupMap.set(`${r.ticker}__${r.date}`, r);
+      const dedup = Array.from(dedupMap.values());
 
-      // Group exactly the 6 desired tickers, in order
+      // group to our fixed ticker order
       const grouped = Object.fromEntries(DESIRED_TICKERS.map(t => [t, []]));
       for (const r of dedup) if (grouped[r.ticker]) grouped[r.ticker].push(r);
 
-      const grid = $("#mnav-grid");
-      if (!grid) { diag("Missing #mnav-grid"); return; }
+      diag(`mNAV source: ${path} • points → ` + DESIRED_TICKERS.map(t => `${t}:${(grouped[t]||[]).length}`).join("  "));
+
+      const grid = $("#mnav-grid"); if (!grid) { diag("Missing #mnav-grid"); return; }
       grid.innerHTML = "";
 
       for (const tkr of DESIRED_TICKERS) {
@@ -145,7 +155,7 @@
         const caption = el("div","caption"); caption.textContent = "mNAV = (Price × Number of Shares) ÷ NAV";
         card.appendChild(head); card.appendChild(chartBox); card.appendChild(caption);
         if (!series.length) { const note = el("div","caption"); note.textContent = "No data found for this ticker in CSV."; card.appendChild(note); }
-        $("#mnav-grid").appendChild(card);
+        grid.appendChild(card);
 
         let rangeDays = 30, chart;
         const render = () => {
@@ -161,22 +171,23 @@
     } catch (err) { diag(String(err)); }
   }
 
-  // ----- ETF Flows (unchanged spec) -----
+  // ---------- ETF Flows ----------
   async function initEtf() {
     try {
       const { rows, path } = await loadCSVAny(CSV_CANDIDATES.etf, "etf_data.csv");
-      diag(`ETF source: ${path}`);
-
-      const base = rows.map(r => {
-        const date = r.date ?? r.Date ?? r.dt;
-        const btcDaily = +(r.btc_daily ?? r.btc_net ?? r.btc ?? r.BTC ?? r.btc_sum ?? r.BTC_Flow ?? 0);
-        const ethDaily = +(r.eth_daily ?? r.eth_net ?? r.eth ?? r.ETH ?? r.eth_sum ?? r.ETH_Flow ?? 0);
+      const base = rows.map(o => {
+        const r = lowerKeys(o);
+        const date = r.date || r.dt || r.timestamp;
+        const btcDaily = +(r.btc_daily ?? r.btc_net ?? r.btc ?? r.btc_sum ?? r.btc_flow ?? 0);
+        const ethDaily = +(r.eth_daily ?? r.eth_net ?? r.eth ?? r.eth_sum ?? r.eth_flow ?? 0);
         return { date: fmtDate(date), btcDaily, ethDaily };
       }).filter(r => r.date).sort((a,b) => a.date.localeCompare(b.date));
 
       // all-time cumulative
       let bCum = 0, eCum = 0;
       const withCum = base.map(r => { bCum += r.btcDaily; eCum += r.ethDaily; return { ...r, btcCum: bCum, ethCum: eCum }; });
+
+      diag(`ETF source: ${path} • rows: ${withCum.length}`);
 
       const btcCtx = $("#btcChart")?.getContext("2d");
       const ethCtx = $("#ethChart")?.getContext("2d");
