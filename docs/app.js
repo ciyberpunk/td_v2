@@ -3,13 +3,12 @@
      - data/dat_data.csv  → per-ticker mNAV lines (daily)
      - data/etf_data.csv  → BTC/ETH ETF flows: bars (daily), line (cumulative)
 */
-
 (() => {
-  console.log("mNAV + ETF app loaded: v=etf-2", new Date().toISOString());
+  console.log("mNAV + ETF app loaded: v=fix-3", new Date().toISOString());
 
   // -------- utils --------
   async function fetchCSV(path) {
-    const url = `${path}?t=${Date.now()}`;
+    const url = `${path}?t=${Date.now()}`; // cache-bust for viewers
     const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) throw new Error(`Failed to load ${path}: ${res.status}`);
     const text = await res.text();
@@ -20,20 +19,15 @@
     if (lines.length === 0) return [];
     const headers = lines[0].split(",").map(h => h.trim());
     return lines.slice(1).map(line => {
-      const cols = line.split(",");
+      const cols = line.split(","); // OK: our CSV has no quoted commas
       const obj = {};
       headers.forEach((h, i) => obj[h] = cols[i] !== undefined ? cols[i] : "");
       return obj;
     });
   }
   function toDate(s) { return new Date(s + "T00:00:00"); }
-  function daysAgo(days) {
-    const d = new Date(); d.setDate(d.getDate() - days); d.setHours(0,0,0,0); return d;
-  }
-  function filterByDays(rows, days) {
-    const c = daysAgo(days);
-    return rows.filter(r => toDate(r.date) >= c);
-  }
+  function daysAgo(days) { const d = new Date(); d.setDate(d.getDate() - days); d.setHours(0,0,0,0); return d; }
+  function filterByDays(rows, days) { const c = daysAgo(days); return rows.filter(r => toDate(r.date) >= c); }
 
   // -------- colors & chart defaults --------
   const colorLine = "rgba(79,140,255,0.95)";
@@ -84,9 +78,9 @@
         byT.get(t).push({ date: d, v });
       }
 
-      const order = ["eq-mstr","eq-mtplf","eq-sbet","eq-bmnr","eq-dfdv","eq-upxi"];
+      const desiredOrder = ["eq-mstr","eq-mtplf","eq-sbet","eq-bmnr","eq-dfdv","eq-upxi"];
       const all = Array.from(byT.keys());
-      const ordered = [...order.filter(x => all.includes(x)), ...all.filter(x => !order.includes(x))];
+      const ordered = [...desiredOrder.filter(x => all.includes(x)), ...all.filter(x => !desiredOrder.includes(x))];
 
       const grid = document.getElementById("mnav-grid");
       for (const sym of ordered) {
@@ -101,30 +95,37 @@
               <button class="toggle-btn" data-range="90">3M</button>
             </div>
           </div>
-          <canvas id="mnav-${sym}"></canvas>
+          <canvas id="mnav-${sym}" class="chart-canvas"></canvas>
           <p class="card-note">mNAV = (Price × Shares) ÷ NAV</p>
         `;
         grid.appendChild(card);
 
-        const rows = (byT.get(sym) || []).slice().sort((a,b) => a.date.localeCompare(b.date));
+        const series = (byT.get(sym) || []).slice().sort((a,b) => a.date.localeCompare(b.date));
         const ctx = card.querySelector(`#mnav-${sym}`).getContext("2d");
-        const fullLabels = rows.map(r => r.date);
-        const fullData = rows.map(r => +r.v || 0);
+
+        const fullLabels = series.map(r => r.date);
+        const fullData = series.map(r => +r.v || 0);
 
         const chart = new Chart(ctx, {
           type: "line",
           data: { labels: fullLabels, datasets: [{ label: "mNAV", data: fullData, borderColor: colorLine, borderWidth: 2, pointRadius: 0, tension: 0.25 }] },
           options: {
             maintainAspectRatio: false,
+            animation: false,            // FIX: no reflow on first draw
             interaction: { mode: "index", intersect: false },
-            plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `mNAV: ${Number(c.raw ?? 0).toLocaleString(undefined,{maximumFractionDigits:1})}` } } },
-            scales: { x: { grid:{display:false}, ticks:{maxRotation:0, autoSkip:true, autoSkipPadding:10} }, y: { ticks:{ callback:v=>Number(v).toLocaleString() } } }
+            plugins: { legend: { display: false },
+              tooltip: { callbacks: { label: c => `mNAV: ${Number(c.raw ?? 0).toLocaleString(undefined,{maximumFractionDigits:1})}` } }
+            },
+            scales: {
+              x: { grid:{display:false}, ticks:{maxRotation:0, autoSkip:true, autoSkipPadding:10} },
+              y: { ticks:{ callback:v=>Number(v).toLocaleString() } }
+            }
           }
         });
 
         const btns = card.querySelectorAll(".toggle-btn");
         const update = days => {
-          const sub = filterByDays(rows.map(r => ({date:r.date, v:r.v})), days);
+          const sub = filterByDays(series.map(r => ({date:r.date, v:r.v})), days);
           chart.data.labels = sub.map(r => r.date);
           chart.data.datasets[0].data = sub.map(r => +r.v || 0);
           chart.update();
@@ -166,6 +167,7 @@
       },
       options: {
         maintainAspectRatio: false,
+        animation: false,              // FIX: avoid downward “warp” on first paint
         interaction: { mode: "index", intersect: false },
         plugins: { legend: { display: true } },
         scales: {

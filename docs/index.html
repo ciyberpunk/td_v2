@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Digital Asset Treasuries — mNAV & ETF Flows</title>
-  <link rel="stylesheet" href="styles.css?v=etf-2" />
+  <link rel="stylesheet" href="styles.css?v=fix-3" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -13,24 +13,24 @@
     <p class="sub">Live mNAV & ETF flow tracking (GitHub Pages)</p>
   </header>
 
-  <!-- mNAV SECTION -->
+  <!-- mNAV -->
   <section class="section">
     <div class="section-head">
       <h2>mNAV (Market NAV) — Treasuries</h2>
       <p class="section-desc">
-        mNAV = (Share Price × Number of Shares) ÷ Net Asset Value.
-        Toggle each chart to view the last month or three months. Data from Artemis (daily).
+        mNAV = (Share Price × Number of Shares) ÷ Net Asset Value. Toggle each chart for 1M / 3M.
+        Data from Artemis (daily).
       </p>
     </div>
     <div id="mnav-grid" class="charts-grid"></div>
   </section>
 
-  <!-- ETF FLOWS SECTION -->
+  <!-- ETF -->
   <section class="section">
     <div class="section-head">
       <h2>ETF Flows (Farside) — USD millions</h2>
       <p class="section-desc">
-        Positive/negative daily net flows (bars) with cumulative (line). Principled sums of USD funds only:
+        Positive/negative daily net flows (bars) with cumulative (line). Principled USD-only sums:
         <strong>BTC</strong> IBIT, FBTC, BITB, ARKB, BTCO, EZBC, BRRR, HODL, BTCW, GBTC —
         <strong>ETH</strong> ETHA, FETH, ETHW, TETH, ETHV, QETH, EZET, ETHE, ETH.
       </p>
@@ -45,8 +45,8 @@
             <button class="toggle-btn" data-range="90">3M</button>
           </div>
         </div>
-        <canvas id="etf-btc"></canvas>
-        <p class="card-note">Daily net flow (bars), cumulative total (line).</p>
+        <canvas id="etf-btc" class="chart-canvas"></canvas>
+        <p class="card-note">Daily net flow (bars) and cumulative (line).</p>
       </div>
 
       <div class="chart-card">
@@ -57,8 +57,8 @@
             <button class="toggle-btn" data-range="90">3M</button>
           </div>
         </div>
-        <canvas id="etf-eth"></canvas>
-        <p class="card-note">Daily net flow (bars), cumulative total (line).</p>
+        <canvas id="etf-eth" class="chart-canvas"></canvas>
+        <p class="card-note">Daily net flow (bars) and cumulative (line).</p>
       </div>
     </div>
   </section>
@@ -67,6 +67,6 @@
     <p>Built with GitHub Pages. Data: Artemis (mNAV), Farside (ETF). Updated hourly via GitHub Actions.</p>
   </footer>
 
-  <script src="app.js?v=etf-2"></script>
+  <script src="app.js?v=fix-3" defer></script>
 </body>
 </html>
