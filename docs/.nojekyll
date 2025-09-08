@@ -1,1 +1,26 @@
+cd /Users/angelogoepel/td_v2
+
+# create docs folder if needed
+mkdir -p docs/data
+
+# (You already have docs/data/dat_data.csv from your exporter)
+# Add the dashboard files:
+cat > docs/index.html <<'EOF'
+[PASTE THE INDEX.HTML CONTENT FROM ABOVE]
+EOF
+
+cat > docs/styles.css <<'EOF'
+[PASTE THE STYLES.CSS CONTENT FROM ABOVE]
+EOF
+
+cat > docs/app.js <<'EOF'
+[PASTE THE APP.JS CONTENT FROM ABOVE]
+EOF
+
+cat > docs/.nojekyll <<'EOF'
 # Prevent GitHub Pages from running Jekyll so our static files load as-is
+EOF
+
+git add docs
+git commit -m "Add GitHub Pages dashboard: dark theme mNAV charts"
+git push
