@@ -1,42 +1,72 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1, viewport-fit=cover"
-  />
-  <meta name="theme-color" content="#0d1117" />
-  <title>mNAV Dashboard</title>
-  <link rel="icon" href="data:,">
-
-  <!-- CSS (cache-busted by your Action) -->
-  <link rel="stylesheet" href="styles.css?v=20250908133804-bfedee2" />
-
-  <!-- Perf: warm up the CDN -->
-  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-
-  <!-- Libraries (deferred, order preserved) -->
-  <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Digital Asset Treasuries — mNAV & ETF Flows</title>
+  <link rel="stylesheet" href="styles.css?v=etf-2" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <header class="site-header">
-    <h1>mNAV Dashboard</h1>
-    <p>mNAV = (Price × Number of Shares Outstanding) ÷ NAV</p>
+    <h1>Digital Asset Treasuries Dashboard</h1>
+    <p class="sub">Live mNAV & ETF flow tracking (GitHub Pages)</p>
   </header>
 
-  <main id="charts" class="charts-grid">
-    <div class="loading">Loading mNAV charts…</div>
-    <noscript style="color:#9aa3af;padding:12px">This page requires JavaScript.</noscript>
-  </main>
+  <!-- mNAV SECTION -->
+  <section class="section">
+    <div class="section-head">
+      <h2>mNAV (Market NAV) — Treasuries</h2>
+      <p class="section-desc">
+        mNAV = (Share Price × Number of Shares) ÷ Net Asset Value.
+        Toggle each chart to view the last month or three months. Data from Artemis (daily).
+      </p>
+    </div>
+    <div id="mnav-grid" class="charts-grid"></div>
+  </section>
+
+  <!-- ETF FLOWS SECTION -->
+  <section class="section">
+    <div class="section-head">
+      <h2>ETF Flows (Farside) — USD millions</h2>
+      <p class="section-desc">
+        Positive/negative daily net flows (bars) with cumulative (line). Principled sums of USD funds only:
+        <strong>BTC</strong> IBIT, FBTC, BITB, ARKB, BTCO, EZBC, BRRR, HODL, BTCW, GBTC —
+        <strong>ETH</strong> ETHA, FETH, ETHW, TETH, ETHV, QETH, EZET, ETHE, ETH.
+      </p>
+    </div>
+
+    <div id="etf-grid" class="charts-grid">
+      <div class="chart-card">
+        <div class="card-head">
+          <h3>BTC ETF Flows</h3>
+          <div class="toggles" data-target="etf-btc">
+            <button class="toggle-btn active" data-range="30">1M</button>
+            <button class="toggle-btn" data-range="90">3M</button>
+          </div>
+        </div>
+        <canvas id="etf-btc"></canvas>
+        <p class="card-note">Daily net flow (bars), cumulative total (line).</p>
+      </div>
+
+      <div class="chart-card">
+        <div class="card-head">
+          <h3>ETH ETF Flows</h3>
+          <div class="toggles" data-target="etf-eth">
+            <button class="toggle-btn active" data-range="30">1M</button>
+            <button class="toggle-btn" data-range="90">3M</button>
+          </div>
+        </div>
+        <canvas id="etf-eth"></canvas>
+        <p class="card-note">Daily net flow (bars), cumulative total (line).</p>
+      </div>
+    </div>
+  </section>
 
   <footer class="site-footer">
-    <span>Source: <code>docs/data/dat_data.csv</code></span>
+    <p>Built with GitHub Pages. Data: Artemis (mNAV), Farside (ETF). Updated hourly via GitHub Actions.</p>
   </footer>
 
-  <!-- App (cache-busted by your Action) -->
-  <script defer src="app.js?v=20250908133804-bfedee2"></script>
+  <script src="app.js?v=etf-2"></script>
 </body>
 </html>

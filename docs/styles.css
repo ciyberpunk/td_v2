@@ -7,12 +7,10 @@
   --card-radius: 16px;
   --shadow: 0 6px 18px rgba(0,0,0,0.35);
   --accent: #4f8cff;
-  --accent-2: #22c55e;
-  --danger: #ef4444;
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font: 14px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font: 14px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
 
 .site-header, .site-footer { padding: 24px; text-align: center; }
 .site-header h1 { margin: 0 0 6px; font-size: 28px; font-weight: 700; }
@@ -62,11 +60,6 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 .toggle-btn:hover { border-color: var(--accent); }
 .toggle-btn.active { background: #1a2230; border-color: var(--accent); }
 
-.card-note {
-  margin: 4px 2px 0;
-  color: var(--muted);
-  font-size: 12px;
-}
+.card-note { margin: 4px 2px 0; color: var(--muted); font-size: 12px; }
 
-/* Chart.js tooltip / legend tweak for dark mode */
-.chartjs-render-monitor { filter: none; }
+.chartjs-render-monitor { filter: none; } /* dark tooltips */
