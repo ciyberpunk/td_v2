@@ -4,13 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Digital Asset Treasuries Dashboard</title>
-
-  <!-- Your stylesheet (relative path for GitHub Pages) -->
   <link rel="stylesheet" href="styles.css">
-
-  <!-- Minimal fallback styles (in case styles.css is missing/outdated) -->
   <style>
-    :root { --bg:#0e0f12; --panel:#15171c; --text:#e9eef5; --muted:#9aa3b2; --card:#0f1115; }
+    :root { --bg:#0e0f12; --panel:#15171c; --text:#e9eef5; --muted:#9aa3b2; }
     html,body{background:var(--bg);color:var(--text);margin:0}
     body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
     .container{max-width:1200px;margin:32px auto;padding:0 16px}
@@ -20,7 +16,7 @@
     .hint{color:var(--muted);font-size:12px;margin:0 0 12px}
     .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
     @media (max-width:900px){.grid{grid-template-columns:1fr}}
-    .card{background:var(--panel);border-radius:12px;box-shadow:0 1px 0 rgba(255,255,255,.04) inset;overflow:hidden}
+    .card{background:var(--panel);border-radius:12px;overflow:hidden}
     .card-head{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #1d212a;font-weight:600}
     .btns{display:flex;gap:6px}
     .btns button{background:#1d212a;color:var(--text);border:0;border-radius:10px;padding:4px 8px;font-size:12px;cursor:pointer}
@@ -30,12 +26,8 @@
     .caption{color:var(--muted);font-size:11px;padding:0 12px 10px}
     .foot{color:var(--muted);text-align:center;margin:24px 0 12px;font-size:11px}
   </style>
-
-  <!-- Dependencies (CDN) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-
-  <!-- Your app logic (relative, no leading slash) -->
   <script defer src="app.js"></script>
 </head>
 <body>
@@ -43,15 +35,12 @@
     <h1>Digital Asset Treasuries Dashboard</h1>
     <p class="subtitle">Live mNAV & ETF flow tracking (GitHub Pages)</p>
 
-    <!-- mNAV section -->
     <section id="mnav">
       <h2>mNAV (Market NAV) — Treasuries</h2>
       <p class="hint">mNAV = (Share Price × Number of Shares) ÷ Net Asset Value. Toggle each chart for 1M / 3M. Data from Artemis (daily).</p>
-      <!-- App expects this container to exist; one chart per ticker gets injected -->
       <div id="mnav-grid" class="grid"></div>
     </section>
 
-    <!-- ETF flows section -->
     <section id="etf">
       <h2>ETF Flows (Farside) — USD millions</h2>
       <p class="hint">Daily net flows (bars, positive/negative) with cumulative (line). USD-only sums.</p>
