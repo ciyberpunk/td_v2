@@ -1,10 +1,10 @@
-/* app.js — mNAV + ETF charts (client-side)
+/* mNAV + ETF charts (client-side)
    Reads:
      - data/dat_data.csv  → per-ticker mNAV lines (daily)
      - data/etf_data.csv  → BTC/ETH ETF flows: bars (daily), line (cumulative)
 */
 (() => {
-  console.log("mNAV + ETF app loaded: v=fix-3", new Date().toISOString());
+  console.log("mNAV + ETF app loaded: v=fix-5", new Date().toISOString());
 
   // -------- utils --------
   async function fetchCSV(path) {
@@ -111,7 +111,7 @@
           data: { labels: fullLabels, datasets: [{ label: "mNAV", data: fullData, borderColor: colorLine, borderWidth: 2, pointRadius: 0, tension: 0.25 }] },
           options: {
             maintainAspectRatio: false,
-            animation: false,            // FIX: no reflow on first draw
+            animation: false,
             interaction: { mode: "index", intersect: false },
             plugins: { legend: { display: false },
               tooltip: { callbacks: { label: c => `mNAV: ${Number(c.raw ?? 0).toLocaleString(undefined,{maximumFractionDigits:1})}` } }
@@ -167,7 +167,7 @@
       },
       options: {
         maintainAspectRatio: false,
-        animation: false,              // FIX: avoid downward “warp” on first paint
+        animation: false,  // prevents initial warp
         interaction: { mode: "index", intersect: false },
         plugins: { legend: { display: true } },
         scales: {
