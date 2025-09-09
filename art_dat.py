@@ -375,3 +375,146 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(2)
+# === mNAV augmentation (inline) ===============================================
+# Adds/refreshes metric=='mnav' rows inside docs/data/dat_data.csv
+# mNAV = (Price × Number of Shares Outstanding) ÷ NAV
+try:
+    import re
+    from pathlib import Path
+    import pandas as pd
+
+    WANT = ["MSTR","MTPLF","SBET","BMNR","DFDV","UPXI"]
+
+    def _to_num(x):
+        if x is None: return float('nan')
+        if isinstance(x,(int,float)): return float(x)
+        s = str(x).strip()
+        if not s: return float('nan')
+        s = s.replace("\u2212","-")             # unicode minus
+        if re.fullmatch(r"\(.*\)", s): s = "-" + s[1:-1]
+        s = re.sub(r"[,$]", "", s).replace("%","")
+        try: return float(s)
+        except: return float('nan')
+
+    def _is_price(name: str) -> bool:
+        n = name.lower().strip()
+        return bool(re.search(r"(?:^|[\s_-])(price|px|px\s*last|close|last)(?:$|[\s_-])", n))
+
+    def _is_nav(name: str) -> bool:
+        n = name.lower().strip()
+        return bool(re.search(r"(?:^|[\s_-])(nav|nav\s*usd|net\s*asset\s*value)(?:$|[\s_-])", n))
+
+    _EXCLUDE_SHARES = ["token","tokens","warrant","convertible","non-convertible","bond","debt"]
+    def _is_shares(name: str) -> bool:
+        n = name.lower().strip()
+        if any(b in n for b in _EXCLUDE_SHARES): return False
+        return bool(
+            re.search(r"(?:^|[\s_-])(?:num|number)\s*(?:of\s*)?shares(?:$|[\s_-])", n) or
+            re.search(r"shares?\s*[_\s-]*outstanding", n) or
+            re.search(r"basic\s*[_\s-]*shares?\s*[_\s-]*out", n) or
+            re.search(r"diluted\s*[_\s-]*shares?\s*[_\s-]*out", n) or
+            re.search(r"share\s*[_\s-]*count", n) or
+            re.search(r"shs\s*[_\s-]*out", n)
+        )
+
+    def _col_to_ticker(col: str):
+        lc = col.lower()
+        for w in WANT:
+            if w.lower() in lc: return w
+        m = re.search(r"(mstr|mtplf|sbet|bmnr|dfdv|upxi)", lc)
+        return m.group(1).upper() if m else None
+
+    # locate dat_data.csv relative to this file
+    _root = Path(__file__).resolve().parent
+    _cands = [
+        _root / "docs" / "data" / "dat_data.csv",
+        _root / "docs" / "Data" / "dat_data.csv",
+        _root / "data" / "dat_data.csv",
+    ]
+    _src = next((p for p in _cands if p.exists()), None)
+    if not _src:
+        print("[mnav] dat_data.csv not found; skipping mNAV augmentation")
+    else:
+        # read as-is, keep original column casing/order for write-back
+        _orig = pd.read_csv(_src, dtype=str, keep_default_na=False)
+        _orig_cols = list(_orig.columns)
+
+        df = _orig.copy()
+        df.columns = [c.strip().lower() for c in df.columns]
+
+        if "date" not in df.columns or "metric" not in df.columns:
+            print("[mnav] expected columns 'date' and 'metric'; skipping")
+        else:
+            # identify per-ticker matrix columns (eq-*)
+            _tcols = []
+            for c in df.columns:
+                if c in ("date","metric"): continue
+                t = _col_to_ticker(c)
+                if t in WANT:
+                    _tcols.append((c, t))
+            if not _tcols:
+                print("[mnav] no per-ticker columns found; skipping")
+            else:
+                # slice blocks by metric name
+                def _metric_block(pred):
+                    sub = df[df["metric"].apply(lambda s: pred(str(s)))]
+                    if sub.empty:
+                        return pd.DataFrame(index=pd.Index([], name="date"),
+                                            columns=[t for _,t in _tcols])
+                    keep = ["date"] + [c for c,_ in _tcols]
+                    sub = sub[keep].copy()
+                    for c,_ in _tcols:
+                        sub[c] = sub[c].map(_to_num)
+                    # keep last per date (if multiple rows)
+                    sub = sub.groupby("date").last()
+                    sub.columns = [t for _,t in _tcols]
+                    return sub
+
+                _price  = _metric_block(_is_price)
+                _shares = _metric_block(_is_shares)
+                _nav    = _metric_block(_is_nav)
+
+                _idx = _price.index.union(_shares.index).union(_nav.index)
+                _price  = _price.reindex(_idx)
+                _shares = _shares.reindex(_idx)
+                _nav    = _nav.reindex(_idx)
+
+                _mnav = (_price * _shares) / _nav
+                _mnav = _mnav.dropna(how="all")
+
+                # build rows with metric='mnav' using original eq-* column names
+                _ticker2eq = {t: c for (c,t) in _tcols}
+                _out = []
+                for d, row in _mnav.iterrows():
+                    rec = {c: "" for c in df.columns}
+                    rec["date"] = d
+                    rec["metric"] = "mnav"
+                    anyv = False
+                    for t in WANT:
+                        if t in row and pd.notna(row[t]):
+                            rec[_ticker2eq[t]] = f"{row[t]:.12g}"
+                            anyv = True
+                    if anyv:
+                        _out.append(rec)
+
+                add = pd.DataFrame(_out, columns=df.columns)
+
+                # drop old mnav rows (case-insensitive), append new
+                no_old = df[~df["metric"].str.lower().eq("mnav")].copy()
+                new_df = pd.concat([no_old, add], ignore_index=True)
+
+                # restore original casing/order
+                lower_to_orig = {c.lower(): c for c in _orig_cols}
+                ordered_cols = [lower_to_orig.get(c, c) for c in df.columns]
+                final = new_df.copy()
+                final.columns = ordered_cols
+                final = final[ordered_cols]
+
+                final.to_csv(_src, index=False)
+                counts = {t:int(pd.to_numeric(_mnav[t], errors='coerce').notna().sum())
+                          if t in _mnav.columns else 0 for t in WANT}
+                print(f"[mnav] updated -> {_src}")
+                print("[mnav] counts:", counts)
+except Exception as _e:
+    print("[mnav] augmentation error:", _e)
+# === END mNAV augmentation ====================================================
