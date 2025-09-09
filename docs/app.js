@@ -188,53 +188,57 @@
     async function initEtf(){
       try {
         const { rows, path } = await loadAny(PATHS.etf, "etf_data.csv");
-  
-        const base = rows.map(o => {
+    
+        // Normalize to {date, metric, btc, eth}
+        const normalized = rows.map(o => {
           const r = lowerKeys(o);
-          const d = fmtDate(pick(r,["date","dt","timestamp"]));
-          if (!d) return null;
-  
-          // Prefer explicit aggregated columns; otherwise sum provider columns
-          let btc = toNum(pick(r,["btc_net_flow_usd_millions","btc_daily","btc_flow","btc"]));
-          let eth = toNum(pick(r,["eth_net_flow_usd_millions","eth_daily","eth_flow","eth"]));
-  
-          const keys = Object.keys(r);
-          if (!Number.isFinite(btc)) {
-            btc = keys.filter(k => /btc/.test(k) && /(net|flow)/.test(k) && !/cum|cumulative/.test(k))
-                      .map(k => toNum(r[k])).filter(Number.isFinite).reduce((a,b)=>a+b,0);
-            if (!Number.isFinite(btc)) btc = 0;
+          const d = fmtDate(r.date || r.dt || r.timestamp);
+          const m = String(r.metric || "").toLowerCase();
+          // CSV headers are "BTC" and "ETH" (case-insensitive)
+          const btc = toNum(r.btc ?? r.BTC ?? r["btc"]);
+          const eth = toNum(r.eth ?? r.ETH ?? r["eth"]);
+          return d ? { date: d, metric: m, btc, eth } : null;
+        }).filter(Boolean);
+    
+        // Group by date: pick daily from "etf_net_flow_usd_millions" and cumulative from "etf_cumulative_net_flow_usd_millions"
+        const byDate = {}; // date -> { btcDaily, ethDaily, btcCum, ethCum }
+        for (const r of normalized) {
+          const rec = (byDate[r.date] ||= { btcDaily: 0, ethDaily: 0, btcCum: undefined, ethCum: undefined });
+          if (r.metric.includes("cumulative")) {
+            if (Number.isFinite(r.btc)) rec.btcCum = r.btc;
+            if (Number.isFinite(r.eth)) rec.ethCum = r.eth;
+          } else if (r.metric.includes("net_flow")) {
+            if (Number.isFinite(r.btc)) rec.btcDaily = r.btc;
+            if (Number.isFinite(r.eth)) rec.ethDaily = r.eth;
           }
-          if (!Number.isFinite(eth)) {
-            eth = keys.filter(k => /eth/.test(k) && /(net|flow)/.test(k) && !/cum|cumulative/.test(k))
-                      .map(k => toNum(r[k])).filter(Number.isFinite).reduce((a,b)=>a+b,0);
-            if (!Number.isFinite(eth)) eth = 0;
-          }
-  
-          return { date:d, btcDaily: btc, ethDaily: eth };
-        }).filter(Boolean).sort((a,b)=>a.date.localeCompare(b.date));
-  
-        let bCum=0, eCum=0;
-        const withCum = base.map(r => {
-          bCum += r.btcDaily;
-          eCum += r.ethDaily;
-          return { ...r, btcCum:bCum, ethCum:eCum };
+        }
+    
+        // Build time series in date order; if cumulative missing, compute from daily
+        let bCum = 0, eCum = 0;
+        const series = Object.keys(byDate).sort().map(d => {
+          const r = byDate[d];
+          const bD = Number.isFinite(r.btcDaily) ? r.btcDaily : 0;
+          const eD = Number.isFinite(r.ethDaily) ? r.ethDaily : 0;
+          if (Number.isFinite(r.btcCum)) bCum = r.btcCum; else bCum += bD;
+          if (Number.isFinite(r.ethCum)) eCum = r.ethCum; else eCum += eD;
+          return { date: d, btcDaily: bD, ethDaily: eD, btcCum: bCum, ethCum: eCum };
         });
-  
-        banner(`ETF source: ${path} • rows: ${withCum.length}`);
-  
+    
+        banner(`ETF source: ${path} • rows: ${series.length}`);
+    
         const bctx = $("#btcChart")?.getContext("2d");
         const ectx = $("#ethChart")?.getContext("2d");
         if (!bctx || !ectx){ banner("Missing BTC/ETH canvas"); return; }
-  
+    
         let rangeDays = 30;
         function render(){
-          const slice = withCum.slice(-rangeDays);
+          const slice = series.slice(-rangeDays);
           const labels = slice.map(r=>r.date);
           const bBar  = slice.map(r=>r.btcDaily); // signed daily bars
           const bLine = slice.map(r=>r.btcCum);   // cumulative line
           const eBar  = slice.map(r=>r.ethDaily);
           const eLine = slice.map(r=>r.ethCum);
-  
+    
           bctx.__chart && bctx.__chart.destroy();
           ectx.__chart && ectx.__chart.destroy();
           bctx.__chart = barLineChart(bctx, labels, bBar, bLine, "BTC ETF Flows");
