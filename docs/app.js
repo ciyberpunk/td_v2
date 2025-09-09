@@ -83,17 +83,49 @@
     function barLineChart(ctx, labels, bars, line, title) {
       return new Chart(ctx, {
         type: "bar",
-        data: { labels,
+        data: {
+          labels,
           datasets: [
-            { label:"Daily net flow", data: bars, yAxisID:"y", order:2 },
-            { type:"line", label:"Cumulative (all-time)", data: line, yAxisID:"y1", tension:0.2, order:1 },
-          ]},
+            {
+              label: "Daily net flow",
+              data: bars,
+              yAxisID: "y",
+              order: 2,
+              // Red for negatives, green for positives
+              backgroundColor: (c) => {
+                const v = (c.raw ?? c.parsed?.y ?? 0);
+                return (typeof v === "number" && v < 0) ? "rgba(239,68,68,0.8)" : "rgba(22,163,74,0.8)";
+              },
+              borderColor: (c) => {
+                const v = (c.raw ?? c.parsed?.y ?? 0);
+                return (typeof v === "number" && v < 0) ? "rgba(220,38,38,1)" : "rgba(21,128,61,1)";
+              },
+              borderWidth: 1,
+            },
+            {
+              type: "line",
+              label: "Cumulative (all-time)",
+              data: line,
+              yAxisID: "y1",
+              tension: 0.2,
+              order: 1,
+              // show a clean line: no dots until hover
+              pointRadius: 0,
+              pointHoverRadius: 3,
+              pointHitRadius: 8,
+            },
+          ],
+        },
         options: {
-          responsive:true, maintainAspectRatio:false,
-          plugins:{ legend:{position:"bottom"}, title:{display:!!title,text:title} },
-          scales:{ y:{position:"left"}, y1:{position:"right", grid:{drawOnChartArea:false}},
-                   x:{ticks:{maxRotation:0,autoSkip:true,maxTicksLimit:8}} }
-        }
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: "bottom" }, title: { display: !!title, text: title } },
+          scales: {
+            y:  { position: "left",  grid: { drawOnChartArea: true } },
+            y1: { position: "right", grid: { drawOnChartArea: false } },
+            x:  { ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 8 } },
+          },
+        },
       });
     }
   
