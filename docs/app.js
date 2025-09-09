@@ -91,7 +91,6 @@
               data: bars,
               yAxisID: "y",
               order: 2,
-              // Red for negatives, green for positives
               backgroundColor: (c) => {
                 const v = (c.raw ?? c.parsed?.y ?? 0);
                 return (typeof v === "number" && v < 0) ? "rgba(239,68,68,0.8)" : "rgba(22,163,74,0.8)";
@@ -109,7 +108,7 @@
               yAxisID: "y1",
               tension: 0.2,
               order: 1,
-              // show a clean line: no dots until hover
+              borderColor: "#ffffff",
               pointRadius: 0,
               pointHoverRadius: 3,
               pointHitRadius: 8,
@@ -119,7 +118,10 @@
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          plugins: { legend: { position: "bottom" }, title: { display: !!title, text: title } },
+          plugins: {
+            legend: { display: false },      // ⟵ hide legend
+            title:  { display: false },      // ⟵ hide chart.js title
+          },
           scales: {
             y:  { position: "left",  grid: { drawOnChartArea: true } },
             y1: { position: "right", grid: { drawOnChartArea: false } },
@@ -220,65 +222,59 @@
     async function initEtf(){
       try {
         const { rows, path } = await loadAny(PATHS.etf, "etf_data.csv");
+        // ... your parsing stays the same, building `series` = [{date, btcDaily, ethDaily, btcCum, ethCum}, ...]
     
-        // Normalize to {date, metric, btc, eth}
-        const normalized = rows.map(o => {
-          const r = lowerKeys(o);
-          const d = fmtDate(r.date || r.dt || r.timestamp);
-          const m = String(r.metric || "").toLowerCase();
-          // CSV headers are "BTC" and "ETH" (case-insensitive)
-          const btc = toNum(r.btc ?? r.BTC ?? r["btc"]);
-          const eth = toNum(r.eth ?? r.ETH ?? r["eth"]);
-          return d ? { date: d, metric: m, btc, eth } : null;
-        }).filter(Boolean);
-    
-        // Group by date: pick daily from "etf_net_flow_usd_millions" and cumulative from "etf_cumulative_net_flow_usd_millions"
-        const byDate = {}; // date -> { btcDaily, ethDaily, btcCum, ethCum }
-        for (const r of normalized) {
-          const rec = (byDate[r.date] ||= { btcDaily: 0, ethDaily: 0, btcCum: undefined, ethCum: undefined });
-          if (r.metric.includes("cumulative")) {
-            if (Number.isFinite(r.btc)) rec.btcCum = r.btc;
-            if (Number.isFinite(r.eth)) rec.ethCum = r.eth;
-          } else if (r.metric.includes("net_flow")) {
-            if (Number.isFinite(r.btc)) rec.btcDaily = r.btc;
-            if (Number.isFinite(r.eth)) rec.ethDaily = r.eth;
-          }
-        }
-    
-        // Build time series in date order; if cumulative missing, compute from daily
-        let bCum = 0, eCum = 0;
-        const series = Object.keys(byDate).sort().map(d => {
-          const r = byDate[d];
-          const bD = Number.isFinite(r.btcDaily) ? r.btcDaily : 0;
-          const eD = Number.isFinite(r.ethDaily) ? r.ethDaily : 0;
-          if (Number.isFinite(r.btcCum)) bCum = r.btcCum; else bCum += bD;
-          if (Number.isFinite(r.ethCum)) eCum = r.ethCum; else eCum += eD;
-          return { date: d, btcDaily: bD, ethDaily: eD, btcCum: bCum, ethCum: eCum };
-        });
-    
-        banner(`ETF source: ${path} • rows: ${series.length}`);
+        // A) Hide ETF captions under the charts
+        document.querySelectorAll('#etf .caption').forEach(el => el.style.display = 'none');
     
         const bctx = $("#btcChart")?.getContext("2d");
         const ectx = $("#ethChart")?.getContext("2d");
         if (!bctx || !ectx){ banner("Missing BTC/ETH canvas"); return; }
     
-        let rangeDays = 30;
+        // B) Add "All" buttons (next to existing 1M / 3M)
+        (function addAllButtons(){
+          const add = (selPrefix) => {
+            const btn1m = document.querySelector(`[data-range="${selPrefix}-1m"]`);
+            if (!btn1m) return;
+            const wrap = btn1m.parentElement;
+            if (!wrap.querySelector(`[data-range="${selPrefix}-all"]`)) {
+              const all = document.createElement('button');
+              all.type = 'button';
+              all.textContent = 'All';
+              all.setAttribute('data-range', `${selPrefix}-all`);
+              wrap.appendChild(all);
+            }
+          };
+          add('btc'); add('eth');
+        })();
+    
+        let rangeDays = 30; // 30=1M, 90=3M, Infinity=All
+    
         function render(){
-          const slice = series.slice(-rangeDays);
-          const labels = slice.map(r=>r.date);
-          const bBar  = slice.map(r=>r.btcDaily); // signed daily bars
-          const bLine = slice.map(r=>r.btcCum);   // cumulative line
-          const eBar  = slice.map(r=>r.ethDaily);
-          const eLine = slice.map(r=>r.ethCum);
+          const view = (rangeDays === Infinity) ? series : series.slice(-rangeDays);
+          const labels = view.map(r=>r.date);
+          const bBar  = view.map(r=>r.btcDaily);
+          const bLine = view.map(r=>r.btcCum);
+          const eBar  = view.map(r=>r.ethDaily);
+          const eLine = view.map(r=>r.ethCum);
     
           bctx.__chart && bctx.__chart.destroy();
           ectx.__chart && ectx.__chart.destroy();
           bctx.__chart = barLineChart(bctx, labels, bBar, bLine, "BTC ETF Flows");
           ectx.__chart = barLineChart(ectx, labels, eBar, eLine, "ETH ETF Flows");
         }
-        const hook=(sel,days)=>{ const btn=document.querySelector(sel); if (btn) btn.addEventListener("click", ()=>{rangeDays=days; render();}); };
-        hook('[data-range="btc-1m"]',30); hook('[data-range="btc-3m"]',90);
-        hook('[data-range="eth-1m"]',30); hook('[data-range="eth-3m"]',90);
+    
+        const hook = (sel, val) => {
+          const b = document.querySelector(sel);
+          if (b) b.addEventListener("click", () => { rangeDays = val; render(); });
+        };
+        // existing hooks
+        hook('[data-range="btc-1m"]', 30);  hook('[data-range="btc-3m"]', 90);
+        hook('[data-range="eth-1m"]', 30);  hook('[data-range="eth-3m"]', 90);
+        // C) new "All" hooks
+        hook('[data-range="btc-all"]', Infinity);
+        hook('[data-range="eth-all"]', Infinity);
+    
         render();
       } catch (e) { banner(String(e)); }
     }
