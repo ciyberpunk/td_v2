@@ -62,6 +62,38 @@
     return tt;
   }
 
+  // Smart tooltip placement: flip when near container edges
+  function positionTooltip(tt, container, x, y){
+    if (getComputedStyle(container).position === "static") container.style.position = "relative";
+
+    // Prepare for measurement
+    tt.style.visibility = "hidden";
+    tt.style.opacity = 0;
+    // reset any previous placement so size is natural
+    tt.style.left = "0px";
+    tt.style.top  = "0px";
+
+    // Measure container and tooltip
+    const cw = container.clientWidth;
+    const ch = container.clientHeight;
+    // Force layout, then read size (fallbacks if not yet measurable)
+    const tw = tt.offsetWidth || 180;
+    const th = tt.offsetHeight || 40;
+
+    // Decide flips
+    const willOverflowRight = x + 8 + tw > cw;
+    const willOverflowTop   = y - 8 - th < 0;
+
+    const dx = willOverflowRight ? (-8 - tw) : 8;  // left side if would overflow right
+    const dy = willOverflowTop   ? 8          : -8; // below cursor if would overflow top
+
+    // Apply placement
+    tt.style.transform = `translate(${dx}px,${dy}px)`;
+    tt.style.left = `${x}px`;
+    tt.style.top  = `${y}px`;
+    tt.style.visibility = "";
+    tt.style.opacity = 1;
+  }
   function externalMNAVTooltip(context){
     const { chart, tooltip } = context;
     const container = chart.canvas.parentNode;
@@ -73,9 +105,7 @@
       const date = dp.label ?? "";
       const val  = dp.formattedValue ?? "";
       tt.innerHTML = `<div style="opacity:.8">${date}</div><div style="font-weight:600">${val}</div>`;
-      tt.style.left = `${tooltip.caretX}px`;
-      tt.style.top  = `${tooltip.caretY}px`;
-      tt.style.opacity = 1;
+      positionTooltip(tt, container, tooltip.caretX, tooltip.caretY);
     }
   }
 
