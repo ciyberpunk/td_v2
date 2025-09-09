@@ -32,7 +32,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # If fs_etf.py needs any secrets, write them to .env here.
+      # Cloudflare-aware HTTP clients for fs_etf.py
+      - name: Install fetch helpers
+        run: |
+          pip install cloudscraper curl_cffi
+
+      # If fs_etf.py needs secrets, write them to .env here:
       # - name: Write .env
       #   run: |
       #     echo "MY_KEY=${{ secrets.MY_KEY }}" > .env
@@ -41,9 +46,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p docs/data
-          python fs_etf.py
+          python fs_etf.py || (echo "retrying in 10s…" && sleep 10 && python fs_etf.py)
           echo "After fs_etf.py:"; ls -la docs/data || true
-          # If script dropped the file in repo root, normalize it:
           [ -f etf_data.csv ] && mv etf_data.csv docs/data/etf_data.csv || true
           if [ ! -f docs/data/etf_data.csv ]; then
             echo "ERROR: docs/data/etf_data.csv not found"; exit 1
@@ -59,7 +63,8 @@ jobs:
           git add docs/data/etf_data.csv 2>/dev/null || true
           git add docs/data/etf_*.csv    2>/dev/null || true
           if git diff --cached --quiet; then
-            echo "No ETF changes to commit."; exit 0
+            echo "No ETF changes to commit."
+            exit 0
           fi
           TS=$(TZ=Etc/GMT+4 date +"%Y-%m-%d %H:%M UTC-4")
           git commit -m "ETF: daily refresh at ${TS}"
