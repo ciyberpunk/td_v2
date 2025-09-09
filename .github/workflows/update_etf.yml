@@ -15,7 +15,6 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,51 +25,42 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.9"  # match your existing DAT workflow
+          python-version: "3.9"
 
-      - name: Install dependencies
+      - name: Install deps
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # If fs_etf.py needs secrets, write them here like you do for DAT
-      # - name: Write .env from secret(s)
+      # If fs_etf.py needs any secrets, write them to .env here.
+      # - name: Write .env
       #   run: |
       #     echo "MY_KEY=${{ secrets.MY_KEY }}" > .env
 
-      - name: Run ETF update script
+      - name: Run ETF update
         run: |
           set -euo pipefail
           mkdir -p docs/data
           python fs_etf.py
-          echo "After fs_etf.py:"
-          ls -la docs/data || true
-          # If your script wrote to a different path, normalize it here:
-          if [ ! -f docs/data/etf_data.csv ] && [ -f etf_data.csv ]; then
-            mv etf_data.csv docs/data/etf_data.csv
-          fi
+          echo "After fs_etf.py:"; ls -la docs/data || true
+          # If script dropped the file in repo root, normalize it:
+          [ -f etf_data.csv ] && mv etf_data.csv docs/data/etf_data.csv || true
           if [ ! -f docs/data/etf_data.csv ]; then
-            echo "ERROR: docs/data/etf_data.csv not found after fs_etf.py"
-            exit 1
+            echo "ERROR: docs/data/etf_data.csv not found"; exit 1
           fi
-          echo "Sample:"
           head -n 2 docs/data/etf_data.csv || true
           tail -n 2 docs/data/etf_data.csv || true
 
-      - name: Commit & push if ETF data changed
+      - name: Commit & push if changed
         run: |
           set -euo pipefail
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           git add docs/data/etf_data.csv 2>/dev/null || true
           git add docs/data/etf_*.csv    2>/dev/null || true
-
           if git diff --cached --quiet; then
-            echo "No ETF changes to commit."
-            exit 0
+            echo "No ETF changes to commit."; exit 0
           fi
-
           TS=$(TZ=Etc/GMT+4 date +"%Y-%m-%d %H:%M UTC-4")
           git commit -m "ETF: daily refresh at ${TS}"
           git push
