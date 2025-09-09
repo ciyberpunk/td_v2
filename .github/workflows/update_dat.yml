@@ -3,7 +3,7 @@ name: Hourly DAT data update
 on:
   schedule:
     - cron: "5 * * * *"   # run at minute 5 each hour (UTC)
-  workflow_dispatch:       # allow manual run from the Actions tab
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -36,9 +36,15 @@ jobs:
         run: |
           echo "ARTEMIS_API_KEY=${{ secrets.ARTEMIS_API_KEY }}" > .env
 
-      - name: Run data update script
+      - name: Run data update script (DAT)
         run: |
           python art_dat.py
+
+      - name: Compute mNAV inside dat_data.csv
+        run: |
+          python augment_dat_with_mnav.py
+          head -n 2 docs/data/dat_data.csv || true
+          tail -n 2 docs/data/dat_data.csv || true
 
       - name: Build ID for cache-busting
         id: build
@@ -47,9 +53,8 @@ jobs:
 
       - name: Bump CSS/JS versions in index.html
         run: |
-          # Replace existing ?v=... for styles.css and app.js with current BUILD_ID
-          sed -i 's#styles.css?v=[^"]*#styles.css?v='${{ steps.build.outputs.BUILD_ID }}'#' docs/index.html || true
           sed -i 's#app.js?v=[^"]*#app.js?v='${{ steps.build.outputs.BUILD_ID }}'#' docs/index.html || true
+          sed -i 's#styles.css?v=[^"]*#styles.css?v='${{ steps.build.outputs.BUILD_ID }}'#' docs/index.html || true
 
       - name: Commit & push if changed
         run: |
@@ -58,8 +63,7 @@ jobs:
           git add docs/data/dat_data.csv docs/index.html .env || true
           git reset -- .env || true   # never commit secrets
           if ! git diff --cached --quiet; then
-            git commit -m "Auto-update data & cache-bust: ${{ steps.build.outputs.BUILD_ID }}"
+            git commit -m "Auto-update DAT (incl. mNAV) & cache-bust: ${{ steps.build.outputs.BUILD_ID }}"
             git push
           else
             echo "No changes to commit."
-          fi
