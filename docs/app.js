@@ -106,10 +106,11 @@
               label: "Cumulative (all-time)",
               data: line,
               yAxisID: "y1",
-              tension: 0.2,
               order: 1,
-              borderColor: "#ffffff",
-              pointRadius: 0,
+              tension: 0.2,
+              borderColor: "#d1d5db",   // light grey
+              borderWidth: 1,           // thinner line
+              pointRadius: 0,           // no markers
               pointHoverRadius: 3,
               pointHitRadius: 8,
             },
@@ -119,8 +120,8 @@
           responsive: true,
           maintainAspectRatio: false,
           plugins: {
-            legend: { display: false },      // ⟵ hide legend
-            title:  { display: false },      // ⟵ hide chart.js title
+            legend: { display: false },
+            title:  { display: false },
           },
           scales: {
             y:  { position: "left",  grid: { drawOnChartArea: true } },
@@ -223,22 +224,21 @@
       try {
         const { rows, path } = await loadAny(PATHS.etf, "etf_data.csv");
     
-        // Normalize: lower keys, unify date, read BTC/ETH numbers
+        // Normalize rows -> {date, metric, btc, eth, raw}
         const normalized = rows.map(o => {
           const r = lowerKeys(o);
           const d = fmtDate(r.date || r.dt || r.timestamp);
           if (!d) return null;
           const metric = (r.metric ? String(r.metric).toLowerCase() : "");
-          // After lowerKeys, "BTC"/"ETH" -> r.btc / r.eth
           const btc = toNum(r.btc);
           const eth = toNum(r.eth);
           return { date: d, metric, btc, eth, raw: r };
         }).filter(Boolean);
     
-        // Build per-date records
+        // Build a map per date. Defaults "undefined" (not 0) so we can detect first-data date per asset.
         const byDate = {}; // date -> { btcDaily, ethDaily, btcCum, ethCum }
         for (const r of normalized) {
-          const rec = (byDate[r.date] ||= { btcDaily: 0, ethDaily: 0, btcCum: undefined, ethCum: undefined });
+          const rec = (byDate[r.date] ||= { btcDaily: undefined, ethDaily: undefined, btcCum: undefined, ethCum: undefined });
     
           if (r.metric.includes("net_flow")) {
             if (Number.isFinite(r.btc)) rec.btcDaily = r.btc;
@@ -247,45 +247,60 @@
             if (Number.isFinite(r.btc)) rec.btcCum = r.btc;
             if (Number.isFinite(r.eth)) rec.ethCum = r.eth;
           } else if (!r.metric) {
-            // Fallback for wide format rows (no 'metric' column)
-            // Try common field names for daily flows and sum providers if needed.
-            const rr = r.raw;
-            const keys = Object.keys(rr);
+            // Fallback for wide format
+            const rr = r.raw; const keys = Object.keys(rr);
             const bTry = toNum(rr.btc_daily ?? rr.btc_net_flow_usd_millions ?? rr.btc_flow ?? rr.btc);
             const eTry = toNum(rr.eth_daily ?? rr.eth_net_flow_usd_millions ?? rr.eth_flow ?? rr.eth);
             const bSum = keys.filter(k => /btc/.test(k) && /(net|flow)/.test(k) && !/cum|cumulative/.test(k))
                              .map(k => toNum(rr[k])).filter(Number.isFinite).reduce((a,b)=>a+b,0);
             const eSum = keys.filter(k => /eth/.test(k) && /(net|flow)/.test(k) && !/cum|cumulative/.test(k))
                              .map(k => toNum(rr[k])).filter(Number.isFinite).reduce((a,b)=>a+b,0);
-            const b = Number.isFinite(bTry) ? bTry : (Number.isFinite(bSum) ? bSum : 0);
-            const e = Number.isFinite(eTry) ? eTry : (Number.isFinite(eSum) ? eSum : 0);
-            rec.btcDaily = b;
-            rec.ethDaily = e;
+            if (Number.isFinite(bTry) || Number.isFinite(bSum)) rec.btcDaily = Number.isFinite(bTry) ? bTry : bSum;
+            if (Number.isFinite(eTry) || Number.isFinite(eSum)) rec.ethDaily = Number.isFinite(eTry) ? eTry : eSum;
           }
         }
     
-        // Convert to sorted time series; compute cumulative if missing
-        let bCum = 0, eCum = 0;
-        const series = Object.keys(byDate).sort().map(d => {
+        const dates = Object.keys(byDate).sort();
+    
+        // Build BTC series starting from its first actual data point
+        let bCum = 0, startedB = false;
+        const btcSeries = [];
+        for (const d of dates) {
           const r = byDate[d];
-          const bD = Number.isFinite(r.btcDaily) ? r.btcDaily : 0;
-          const eD = Number.isFinite(r.ethDaily) ? r.ethDaily : 0;
-          if (Number.isFinite(r.btcCum)) bCum = r.btcCum; else bCum += bD;
-          if (Number.isFinite(r.ethCum)) eCum = r.ethCum; else eCum += eD;
-          return { date: d, btcDaily: bD, ethDaily: eD, btcCum: bCum, ethCum: eCum };
-        });
+          const hasB = Number.isFinite(r.btcDaily) || Number.isFinite(r.btcCum);
+          if (!startedB && !hasB) continue;
+          if (!startedB) startedB = true;
+          const daily = Number.isFinite(r.btcDaily) ? r.btcDaily : 0;
+          if (Number.isFinite(r.btcCum)) bCum = r.btcCum; else bCum += daily;
+          btcSeries.push({ date: d, daily, cum: bCum });
+        }
     
-        if (!series.length) { banner(`ETF source: ${path} • parsed 0 rows`); return; }
-        banner(`ETF source: ${path} • rows: ${series.length}`);
+        // Build ETH series, starting strictly at its real first date
+        const ETH_START = "2024-07-23";
+        let eCum = 0, startedE = false;
+        const ethSeries = [];
+        for (const d of dates) {
+          if (d < ETH_START) continue;
+          const r = byDate[d];
+          const hasE = Number.isFinite(r.ethDaily) || Number.isFinite(r.ethCum);
+          if (!startedE && !hasE) continue;
+          if (!startedE) startedE = true;
+          const daily = Number.isFinite(r.ethDaily) ? r.ethDaily : 0;
+          if (Number.isFinite(r.ethCum)) eCum = r.ethCum; else eCum += daily;
+          ethSeries.push({ date: d, daily, cum: eCum });
+        }
     
-        // Hide ETF captions under charts (keep tooltip behavior intact)
+        if (!btcSeries.length && !ethSeries.length) { banner(`ETF source: ${path} • parsed 0 rows`); return; }
+        banner(`ETF source: ${path} • BTC: ${btcSeries.length} • ETH: ${ethSeries.length}`);
+    
+        // Hide ETF captions under charts
         document.querySelectorAll('#etf .caption').forEach(el => el.style.display = 'none');
     
         const bctx = $("#btcChart")?.getContext("2d");
         const ectx = $("#ethChart")?.getContext("2d");
         if (!bctx || !ectx){ banner("Missing BTC/ETH canvas"); return; }
     
-        // Ensure "All" buttons exist next to 1M / 3M
+        // Ensure "All" buttons exist
         (function addAllButtons(){
           const add = (prefix) => {
             const btn1m = document.querySelector(`[data-range="${prefix}-1m"]`);
@@ -293,8 +308,7 @@
             const wrap = btn1m.parentElement;
             if (!wrap.querySelector(`[data-range="${prefix}-all"]`)) {
               const all = document.createElement('button');
-              all.type = 'button';
-              all.textContent = 'All';
+              all.type = 'button'; all.textContent = 'All';
               all.setAttribute('data-range', `${prefix}-all`);
               wrap.appendChild(all);
             }
@@ -305,17 +319,22 @@
         let rangeDays = 30; // 30=1M, 90=3M, Infinity=All
     
         function render(){
-          const view = (rangeDays === Infinity) ? series : series.slice(-rangeDays);
-          const labels = view.map(r=>r.date);
-          const bBar  = view.map(r=>r.btcDaily);
-          const bLine = view.map(r=>r.btcCum);
-          const eBar  = view.map(r=>r.ethDaily);
-          const eLine = view.map(r=>r.ethCum);
+          // BTC view
+          const bView = (rangeDays === Infinity) ? btcSeries : btcSeries.slice(-rangeDays);
+          const bLabels = bView.map(r=>r.date);
+          const bBar    = bView.map(r=>r.daily);
+          const bLine   = bView.map(r=>r.cum);
+    
+          // ETH view (note: ETH series starts at 2024-07-23)
+          const eView = (rangeDays === Infinity) ? ethSeries : ethSeries.slice(-rangeDays);
+          const eLabels = eView.map(r=>r.date);
+          const eBar    = eView.map(r=>r.daily);
+          const eLine   = eView.map(r=>r.cum);
     
           bctx.__chart && bctx.__chart.destroy();
           ectx.__chart && ectx.__chart.destroy();
-          bctx.__chart = barLineChart(bctx, labels, bBar, bLine, "BTC ETF Flows");
-          ectx.__chart = barLineChart(ectx, labels, eBar, eLine, "ETH ETF Flows");
+          bctx.__chart = barLineChart(bctx, bLabels, bBar, bLine, "BTC ETF Flows");
+          ectx.__chart = barLineChart(ectx, eLabels, eBar, eLine, "ETH ETF Flows");
         }
     
         const hook = (sel, val) => {
