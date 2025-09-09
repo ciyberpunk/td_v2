@@ -1,6 +1,6 @@
-/* td_v2 frontend — no client mNAV math
-   - mNAV: read metric=='mnav' from dat_data.csv (matrix-long eq-* columns)
-   - ETF : signed daily bars + thin grey cumulative line; 1M / 3M / All
+/* PC F1 — DATs + ETF Flows
+   - mNAV: read metric=='mnav' from dat_data.csv (server-computed)
+   - ETF : signed daily bars + thin white cumulative line; 1M / 3M / All
 */
 (() => {
   "use strict";
@@ -26,9 +26,8 @@
     const n = parseFloat(s); return Number.isFinite(n) ? n : NaN;
   };
 
-  function banner(msg){ console.warn("[td_v2]", msg); }
-    bar.textContent=msg;
-  }
+  // Keep a non-DOM banner (console only) to avoid UI bar
+  function banner(msg){ console.warn("[pc-f1]", msg); }
 
   function loadCSV(path){
     return new Promise((resolve,reject)=>{
@@ -79,6 +78,7 @@
       }
     });
   }
+
   // ---------- mNAV (server-computed rows in dat_data.csv) ----------
   async function initMnav(){
     try{
@@ -143,7 +143,8 @@
       }
     } catch (e) { banner(String(e)); }
   }
-  // ---------- ETF (signed bars + thin grey cumulative; ETH start respected externally) ----------
+
+  // ---------- ETF (signed bars + thin white cumulative; ETH start respected externally) ----------
   async function initEtf(){
     try{
       const {rows, path} = await loadAny(PATHS.etf, "etf_data.csv");
