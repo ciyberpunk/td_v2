@@ -77,7 +77,7 @@
         type: "line",
         data: { labels, datasets: [{ label:"mNAV", data: values, tension: 0.2 }] },
         options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}},
-                   scales:{ x:{ticks:{minRotation:45,maxRotation:45,autoSkip:true,maxTicksLimit:8}} } }
+                   scales:{ x:{ticks:{minRotation:-45,maxRotation:-45,autoSkip:true,maxTicksLimit:8}} } }
       });
     }
     function barLineChart(ctx, labels, bars, line, title) {
@@ -126,7 +126,7 @@
           scales: {
             y:  { position: "left",  grid: { drawOnChartArea: true } },
             y1: { position: "right", grid: { drawOnChartArea: false } },
-            x:{ticks:{minRotation:45,maxRotation:45, autoSkip: true, maxTicksLimit: 8 } },
+            x:{ticks:{minRotation:-45,maxRotation:-45, autoSkip: true, maxTicksLimit: 8 } },
           },
         },
       });
