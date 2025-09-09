@@ -34,3 +34,5 @@ logs/
 # Ignore only the TOP-LEVEL data dir; keep docs/data for Pages
 /data/
 !docs/data/
+docs/data/mnav_series.csv
+art_dat.backup.py
