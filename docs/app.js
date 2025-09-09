@@ -222,26 +222,80 @@
     async function initEtf(){
       try {
         const { rows, path } = await loadAny(PATHS.etf, "etf_data.csv");
-        // ... your parsing stays the same, building `series` = [{date, btcDaily, ethDaily, btcCum, ethCum}, ...]
     
-        // A) Hide ETF captions under the charts
+        // Normalize: lower keys, unify date, read BTC/ETH numbers
+        const normalized = rows.map(o => {
+          const r = lowerKeys(o);
+          const d = fmtDate(r.date || r.dt || r.timestamp);
+          if (!d) return null;
+          const metric = (r.metric ? String(r.metric).toLowerCase() : "");
+          // After lowerKeys, "BTC"/"ETH" -> r.btc / r.eth
+          const btc = toNum(r.btc);
+          const eth = toNum(r.eth);
+          return { date: d, metric, btc, eth, raw: r };
+        }).filter(Boolean);
+    
+        // Build per-date records
+        const byDate = {}; // date -> { btcDaily, ethDaily, btcCum, ethCum }
+        for (const r of normalized) {
+          const rec = (byDate[r.date] ||= { btcDaily: 0, ethDaily: 0, btcCum: undefined, ethCum: undefined });
+    
+          if (r.metric.includes("net_flow")) {
+            if (Number.isFinite(r.btc)) rec.btcDaily = r.btc;
+            if (Number.isFinite(r.eth)) rec.ethDaily = r.eth;
+          } else if (r.metric.includes("cumulative")) {
+            if (Number.isFinite(r.btc)) rec.btcCum = r.btc;
+            if (Number.isFinite(r.eth)) rec.ethCum = r.eth;
+          } else if (!r.metric) {
+            // Fallback for wide format rows (no 'metric' column)
+            // Try common field names for daily flows and sum providers if needed.
+            const rr = r.raw;
+            const keys = Object.keys(rr);
+            const bTry = toNum(rr.btc_daily ?? rr.btc_net_flow_usd_millions ?? rr.btc_flow ?? rr.btc);
+            const eTry = toNum(rr.eth_daily ?? rr.eth_net_flow_usd_millions ?? rr.eth_flow ?? rr.eth);
+            const bSum = keys.filter(k => /btc/.test(k) && /(net|flow)/.test(k) && !/cum|cumulative/.test(k))
+                             .map(k => toNum(rr[k])).filter(Number.isFinite).reduce((a,b)=>a+b,0);
+            const eSum = keys.filter(k => /eth/.test(k) && /(net|flow)/.test(k) && !/cum|cumulative/.test(k))
+                             .map(k => toNum(rr[k])).filter(Number.isFinite).reduce((a,b)=>a+b,0);
+            const b = Number.isFinite(bTry) ? bTry : (Number.isFinite(bSum) ? bSum : 0);
+            const e = Number.isFinite(eTry) ? eTry : (Number.isFinite(eSum) ? eSum : 0);
+            rec.btcDaily = b;
+            rec.ethDaily = e;
+          }
+        }
+    
+        // Convert to sorted time series; compute cumulative if missing
+        let bCum = 0, eCum = 0;
+        const series = Object.keys(byDate).sort().map(d => {
+          const r = byDate[d];
+          const bD = Number.isFinite(r.btcDaily) ? r.btcDaily : 0;
+          const eD = Number.isFinite(r.ethDaily) ? r.ethDaily : 0;
+          if (Number.isFinite(r.btcCum)) bCum = r.btcCum; else bCum += bD;
+          if (Number.isFinite(r.ethCum)) eCum = r.ethCum; else eCum += eD;
+          return { date: d, btcDaily: bD, ethDaily: eD, btcCum: bCum, ethCum: eCum };
+        });
+    
+        if (!series.length) { banner(`ETF source: ${path} • parsed 0 rows`); return; }
+        banner(`ETF source: ${path} • rows: ${series.length}`);
+    
+        // Hide ETF captions under charts (keep tooltip behavior intact)
         document.querySelectorAll('#etf .caption').forEach(el => el.style.display = 'none');
     
         const bctx = $("#btcChart")?.getContext("2d");
         const ectx = $("#ethChart")?.getContext("2d");
         if (!bctx || !ectx){ banner("Missing BTC/ETH canvas"); return; }
     
-        // B) Add "All" buttons (next to existing 1M / 3M)
+        // Ensure "All" buttons exist next to 1M / 3M
         (function addAllButtons(){
-          const add = (selPrefix) => {
-            const btn1m = document.querySelector(`[data-range="${selPrefix}-1m"]`);
+          const add = (prefix) => {
+            const btn1m = document.querySelector(`[data-range="${prefix}-1m"]`);
             if (!btn1m) return;
             const wrap = btn1m.parentElement;
-            if (!wrap.querySelector(`[data-range="${selPrefix}-all"]`)) {
+            if (!wrap.querySelector(`[data-range="${prefix}-all"]`)) {
               const all = document.createElement('button');
               all.type = 'button';
               all.textContent = 'All';
-              all.setAttribute('data-range', `${selPrefix}-all`);
+              all.setAttribute('data-range', `${prefix}-all`);
               wrap.appendChild(all);
             }
           };
@@ -265,14 +319,14 @@
         }
     
         const hook = (sel, val) => {
-          const b = document.querySelector(sel);
-          if (b) b.addEventListener("click", () => { rangeDays = val; render(); });
+          const btn = document.querySelector(sel);
+          if (btn) btn.addEventListener("click", () => { rangeDays = val; render(); });
         };
-        // existing hooks
-        hook('[data-range="btc-1m"]', 30);  hook('[data-range="btc-3m"]', 90);
-        hook('[data-range="eth-1m"]', 30);  hook('[data-range="eth-3m"]', 90);
-        // C) new "All" hooks
+        hook('[data-range="btc-1m"]', 30);
+        hook('[data-range="btc-3m"]', 90);
         hook('[data-range="btc-all"]', Infinity);
+        hook('[data-range="eth-1m"]', 30);
+        hook('[data-range="eth-3m"]', 90);
         hook('[data-range="eth-all"]', Infinity);
     
         render();
