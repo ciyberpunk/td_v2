@@ -1,5 +1,6 @@
 /* PC F1 — DATs + ETF Flows
    - mNAV: read metric=='mnav' from dat_data.csv (server-computed)
+           custom external tooltip that persists & follows the mouse
    - ETF : signed daily bars + thin white cumulative line; 1M / 3M / All
 */
 (() => {
@@ -26,7 +27,7 @@
     const n = parseFloat(s); return Number.isFinite(n) ? n : NaN;
   };
 
-  // Keep a non-DOM banner (console only) to avoid UI bar
+  // console-only diagnostics (no UI banner)
   function banner(msg){ console.warn("[pc-f1]", msg); }
 
   function loadCSV(path){
@@ -41,6 +42,43 @@
   }
   async function loadAny(paths,label){ let last; for(const p of paths){ try { return {rows:await loadCSV(p), path:p}; } catch(e){ last=e; } } throw new Error(`${label} not found (${paths.join(", ")}): ${last}`); }
 
+  // ---------- custom HTML tooltip for mNAV (persistent & follows mouse) ----------
+  function getOrCreateTooltip(container){
+    let tt = container.querySelector(".mn-tooltip");
+    if (!tt) {
+      tt = document.createElement("div");
+      tt.className = "mn-tooltip";
+      tt.style.cssText = [
+        "position:absolute","pointer-events:none",
+        "background:rgba(17,24,39,0.92)","color:#fff",
+        "border:1px solid rgba(255,255,255,0.15)","border-radius:8px",
+        "padding:6px 8px","font:12px/1.25 system-ui,-apple-system,Segoe UI,Roboto,sans-serif",
+        "white-space:nowrap","transform:translate(8px,-8px)","opacity:0","transition:opacity 60ms"
+      ].join(";");
+      container.appendChild(tt);
+    }
+    return tt;
+  }
+
+  function externalMNAVTooltip(context){
+    const { chart, tooltip } = context;
+    const canvas = chart.canvas;
+    const container = canvas.parentNode; // .chart wrapper
+    if (getComputedStyle(container).position === "static") container.style.position = "relative";
+    const tt = getOrCreateTooltip(container);
+
+    if (tooltip.opacity === 0) { tt.style.opacity = 0; return; }
+    if (tooltip.body && tooltip.dataPoints && tooltip.dataPoints.length) {
+      const dp = tooltip.dataPoints[0];
+      const date = dp.label ?? "";
+      const val  = dp.formattedValue ?? "";
+      tt.innerHTML = `<div style="opacity:.8">${date}</div><div style="font-weight:600">${val}</div>`;
+    }
+    tt.style.left = `${tooltip.caretX}px`;
+    tt.style.top  = `${tooltip.caretY}px`;
+    tt.style.opacity = 1;
+  }
+
   // ---------- chart helpers ----------
   function lineChart(ctx, labels, values){
     return new Chart(ctx,{
@@ -48,12 +86,15 @@
       data:{ labels, datasets:[{ label:"mNAV", data:values, tension:0.2, borderColor:"#ffffff", borderWidth:1, pointRadius:0 }] },
       options:{
         responsive:true, maintainAspectRatio:false,
-        plugins:{ legend:{display:false}, title:{display:false} },
+        interaction:{ mode:"index", intersect:false, axis:"x" },
+        plugins:{
+          legend:{display:false}, title:{display:false},
+          tooltip:{ enabled:false, external: externalMNAVTooltip }
+        },
         scales:{ x:{ticks:{minRotation:45,maxRotation:45,autoSkip:true,maxTicksLimit:8}} }
       }
     });
   }
-
   function barLineChart(ctx, labels, bars, line){
     return new Chart(ctx,{
       type:"bar",
@@ -79,7 +120,7 @@
     });
   }
 
-  // ---------- mNAV (server-computed rows in dat_data.csv) ----------
+  // ---------- mNAV ----------
   async function initMnav(){
     try{
       const {rows, path} = await loadAny(PATHS.dat, "dat_data.csv");
@@ -87,7 +128,6 @@
       const mnavRows = lc.filter(r => (r.metric||"").toLowerCase()==="mnav");
       if (!mnavRows.length) { banner("mNAV missing in dat_data.csv — ensure art_dat.py wrote metric='mnav' rows."); return; }
 
-      // map eq-* columns to canonical tickers
       const colToTicker = (k) => {
         const kk = String(k).toLowerCase();
         if (kk==="date"||kk==="metric") return null;
@@ -144,7 +184,7 @@
     } catch (e) { banner(String(e)); }
   }
 
-  // ---------- ETF (signed bars + thin white cumulative; ETH start respected externally) ----------
+  // ---------- ETF ----------
   async function initEtf(){
     try{
       const {rows, path} = await loadAny(PATHS.etf, "etf_data.csv");
