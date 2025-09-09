@@ -85,10 +85,7 @@
         scales:{
           x:{
             ticks:{
-              minRotation:-45, maxRotation:-45, // tilt down-right
-              crossAlign:"far",
-              padding:8,
-              autoSkip:true, maxTicksLimit:8
+              minRotation:45, maxRotation:45, // tilt down-right              autoSkip:true, maxTicksLimit:8
             }
           }
         }
@@ -145,10 +142,7 @@
           y1: { position: "right", grid: { drawOnChartArea: false } },
           x:  {
             ticks: {
-              minRotation:-45, maxRotation:-45, // tilt down-right
-              crossAlign:"far",
-              padding:8,
-              autoSkip:true, maxTicksLimit:8
+              minRotation:45, maxRotation:45, // tilt down-right              autoSkip:true, maxTicksLimit:8
             }
           },
         },
