@@ -1,0 +1,63 @@
+name: Daily ETF data update (UTC-4 @ 23:59)
+
+on:
+  schedule:
+    - cron: "59 3 * * *"   # 23:59 at UTC-4 (fixed, no DST)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-etf
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"  # match your existing workflow
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # If your ETF script needs secrets, write them here (example):
+      # - name: Write .env from secrets
+      #   run: |
+      #     echo "MY_API_KEY=${{ secrets.MY_API_KEY }}" > .env
+
+      - name: Run ETF update script
+        run: |
+          set -euo pipefail
+          # Change this if your ETF script has a different name
+          python fs_etf.py
+          ls -la docs/data || true
+
+      - name: Commit & push if ETF data changed
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Add only ETF files (widen to docs/data if your script writes multiple)
+          git add docs/data/etf_data.csv 2>/dev/null || true
+          git add docs/data/etf_*.csv    2>/dev/null || true
+
+          if git diff --cached --quiet; then
+            echo "No ETF changes to commit."
+            exit 0
+          fi
+
+          TS=$(TZ=Etc/GMT+4 date +"%Y-%m-%d %H:%M UTC-4")
+          git commit -m "ETF: daily refresh at ${TS}"
+          git push
