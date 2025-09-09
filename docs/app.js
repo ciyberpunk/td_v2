@@ -26,13 +26,7 @@
     const n = parseFloat(s); return Number.isFinite(n) ? n : NaN;
   };
 
-  function banner(msg){
-    let bar=$("#diag"); if(!bar){
-      bar=el("div","diag"); bar.id="diag";
-      bar.style.cssText="margin:8px 0 16px;padding:8px 12px;border-radius:10px;background:#2a1b1b;color:#f6dada;font:12px/1.35 system-ui,-apple-system,Segoe UI,Roboto,sans-serif";
-      const container=document.querySelector(".container")||document.body;
-      container.insertBefore(bar, container.firstChild?.nextSibling||container.firstChild);
-    }
+  function banner(msg){ console.warn("[td_v2]", msg); }
     bar.textContent=msg;
   }
 
@@ -52,7 +46,7 @@
   function lineChart(ctx, labels, values){
     return new Chart(ctx,{
       type:"line",
-      data:{ labels, datasets:[{ label:"mNAV", data:values, tension:0.2 }] },
+      data:{ labels, datasets:[{ label:"mNAV", data:values, tension:0.2, borderColor:"#ffffff", borderWidth:1, pointRadius:0 }] },
       options:{
         responsive:true, maintainAspectRatio:false,
         plugins:{ legend:{display:false}, title:{display:false} },
@@ -71,7 +65,7 @@
             borderColor:(c)=>{const v=(c.raw ?? c.parsed?.y ?? 0); return (typeof v==="number"&&v<0)?"rgba(220,38,38,1)":"rgba(21,128,61,1)"; },
             borderWidth:1 },
           { type:"line", label:"Cumulative", data:line, yAxisID:"y1", order:1,
-            tension:0.2, borderWidth:1, borderColor:"#9ca3af", pointRadius:0 }
+            tension:0.2, borderWidth:1, borderColor:"#ffffff", pointRadius:0 }
         ]
       },
       options:{
