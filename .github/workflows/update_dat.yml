@@ -12,6 +12,10 @@ concurrency:
   group: hourly-dat
   cancel-in-progress: false
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -21,6 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: true
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -29,41 +34,43 @@ jobs:
 
       - name: Install dependencies
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Write .env from secret
+        env:
+          ARTEMIS_API_KEY: ${{ secrets.ARTEMIS_API_KEY }}
         run: |
-          echo "ARTEMIS_API_KEY=${{ secrets.ARTEMIS_API_KEY }}" > .env
+          set -euo pipefail
+          printf 'ARTEMIS_API_KEY=%s\n' "$ARTEMIS_API_KEY" > .env
 
       - name: Run data update script (DAT)
         run: |
+          set -euo pipefail
           python art_dat.py
-
-      - name: Compute mNAV inside dat_data.csv
-        run: |
-          python augment_dat_with_mnav.py
-          head -n 2 docs/data/dat_data.csv || true
-          tail -n 2 docs/data/dat_data.csv || true
 
       - name: Build ID for cache-busting
         id: build
         run: |
-          echo "BUILD_ID=$(date -u +%Y%m%d%H%M%S)-${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          echo "BUILD_ID=$(date -u +%Y%m%d%H%M%S)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: Bump CSS/JS versions in index.html
         run: |
-          sed -i 's#app.js?v=[^"]*#app.js?v='${{ steps.build.outputs.BUILD_ID }}'#' docs/index.html || true
-          sed -i 's#styles.css?v=[^"]*#styles.css?v='${{ steps.build.outputs.BUILD_ID }}'#' docs/index.html || true
+          set -euo pipefail
+          sed -i -E 's#styles\.css\?v=[^"]*#styles.css?v='${{ steps.build.outputs.BUILD_ID }}'#g' docs/index.html || true
+          sed -i -E 's#app\.js\?v=[^"]*#app.js?v='${{ steps.build.outputs.BUILD_ID }}'#g' docs/index.html || true
 
       - name: Commit & push if changed
         run: |
+          set -euo pipefail
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/data/dat_data.csv docs/index.html .env || true
-          git reset -- .env || true   # never commit secrets
+          git add docs/data/dat_data.csv docs/index.html || true   # do NOT add .env
           if ! git diff --cached --quiet; then
-            git commit -m "Auto-update DAT (incl. mNAV) & cache-bust: ${{ steps.build.outputs.BUILD_ID }}"
+            git commit -m "DAT auto-update & cache-bust: ${{ steps.build.outputs.BUILD_ID }}"
             git push
           else
             echo "No changes to commit."
+          fi
