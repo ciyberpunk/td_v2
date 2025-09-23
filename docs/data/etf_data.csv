@@ -1235,3 +1235,9 @@ date,metric,BTC,ETH
 2025-09-18,etf_net_flow_usd_millions,152.1,213.1
 2025-09-19,etf_cumulative_net_flow_usd_millions,55852.7,13938.4
 2025-09-19,etf_net_flow_usd_millions,222.6,47.8
+2025-09-20,etf_cumulative_net_flow_usd_millions,55852.7,13938.4
+2025-09-20,etf_net_flow_usd_millions,0.0,0.0
+2025-09-21,etf_cumulative_net_flow_usd_millions,55852.7,13938.4
+2025-09-21,etf_net_flow_usd_millions,0.0,0.0
+2025-09-22,etf_cumulative_net_flow_usd_millions,55852.7,13938.4
+2025-09-22,etf_net_flow_usd_millions,0.0,0.0
